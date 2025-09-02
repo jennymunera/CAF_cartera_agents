@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.datamodel.pipeline_options import PdfPipelineOptions, EasyOcrOptions, AcceleratorOptions, AcceleratorDevice, TableStructureOptions
 from chunking_processor import ChunkingProcessor
 
 
@@ -30,13 +30,29 @@ class DoclingProcessor:
         # Detect and configure GPU usage
         self._setup_gpu_config()
         
-        # Configure full pipeline options - enable all Docling features
+        # Configure OCR options for better scanned document processing
+        ocr_options = self._configure_ocr_engine()
+        
+        # Configure accelerator options
+        accelerator_options = AcceleratorOptions(
+            num_threads=8,
+            device=AcceleratorDevice.CUDA if self.use_gpu else AcceleratorDevice.CPU
+        )
+        
+        # Configure full pipeline options - optimized for scanned documents
         self.pipeline_options = PdfPipelineOptions(
             do_ocr=True,
             do_table_structure=True,
-            do_picture_description=True,
-            generate_page_images=True,
-            generate_picture_images=True
+            do_picture_description=False,  # Desactivar para mejorar velocidad en documentos escaneados
+            generate_page_images=False,  # No necesario para extracción de texto
+            generate_picture_images=False,  # No necesario para extracción de texto
+            force_backend_text=False,  # Permitir OCR cuando sea necesario
+            ocr_options=ocr_options,
+            accelerator_options=accelerator_options,
+            # Optimizar opciones de estructura de tabla para mejor velocidad
+            table_structure_options=TableStructureOptions(
+                do_cell_matching=False  # Desactivar para mejorar velocidad en documentos escaneados
+            )
         )
         
         # Create document converter with full configuration for multiple formats
@@ -77,6 +93,16 @@ class DoclingProcessor:
             self.device = torch.device('cpu')
             print("GPU no disponible, usando CPU")
             print(f"PyTorch versión: {torch.__version__}")
+    
+    def _configure_ocr_engine(self):
+        """Configura el motor OCR con EasyOCR optimizado para documentos escaneados."""
+        print("Usando EasyOCR con configuración optimizada para documentos escaneados")
+        return EasyOcrOptions(
+            lang=["es", "en"],  # Español e inglés
+            force_full_page_ocr=True,  # Forzar OCR en toda la página
+            confidence_threshold=0.4,  # Umbral de confianza más bajo para capturar más texto
+            bitmap_area_threshold=0.01  # Umbral más bajo para detectar áreas de texto más pequeñas
+        )
     
     def process_single_document(self, file_path) -> Dict[str, Any]:
         """Processes a single document and extracts its content.
@@ -265,6 +291,15 @@ class DoclingProcessor:
         docs_dir.mkdir(exist_ok=True)
         agents_output_dir.mkdir(exist_ok=True)
         
+        # Save individual document markdown files in docs folder
+        for doc in project_data["documents"]:
+            if doc["metadata"]["processing_status"] == "success":
+                doc_md_file = docs_dir / f"{Path(doc['filename']).stem}.md"
+                with open(doc_md_file, 'w', encoding='utf-8') as f:
+                    f.write(f"# {doc['filename']}\n\n")
+                    f.write(doc["content"])
+                print(f"Individual document saved: {doc_md_file}")
+        
         # Save concatenated content as markdown in docs folder
         markdown_file = docs_dir / f"{project_name}_concatenated.md"
         with open(markdown_file, 'w', encoding='utf-8') as f:
@@ -279,6 +314,7 @@ class DoclingProcessor:
         print(f"   Project dir: {project_dir}")
         print(f"   Content: {markdown_file}")
         print(f"   Metadata: {json_file}")
+        print(f"   Individual docs: {len([d for d in project_data['documents'] if d['metadata']['processing_status'] == 'success'])} files")
         
         # Perform automatic chunking if enabled
         if self.auto_chunk:

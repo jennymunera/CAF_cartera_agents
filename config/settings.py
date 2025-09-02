@@ -13,6 +13,10 @@ class Settings:
     AZURE_OPENAI_API_VERSION: str = os.getenv("AZURE_OPENAI_API_VERSION", "")
     DEPLOYMENT_NAME: str = os.getenv("DEPLOYMENT_NAME", "")
     
+    # Azure Document Intelligence configuration
+    AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT: str = os.getenv("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT", "")
+    AZURE_DOCUMENT_INTELLIGENCE_KEY: str = os.getenv("AZURE_DOCUMENT_INTELLIGENCE_KEY", "")
+    
     # Project configuration
     PROJECT_NAME: str = os.getenv("PROJECT_NAME", "CrewAI_Project")
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
@@ -23,7 +27,6 @@ class Settings:
         "verbose": True,
         "allow_delegation": False,
         "temperature": 0.7,
-        "max_tokens": 2000,
     }
     
     # Task configuration
@@ -40,25 +43,42 @@ class Settings:
     }
     
     @classmethod
-    def validate_config(cls) -> bool:
+    def validate_config(cls, check_document_intelligence: bool = False) -> bool:
         """
         Validates that the configuration is complete.
+        
+        Args:
+            check_document_intelligence: Whether to validate Document Intelligence configuration
         
         Returns:
             True if configuration is valid, False otherwise
         """
+        is_valid = True
+        
+        # Validate Azure OpenAI configuration
         if not cls.AZURE_OPENAI_API_KEY:
             print("WARNING: AZURE_OPENAI_API_KEY is not configured")
-            return False
+            is_valid = False
         if not cls.ENDPOINT_URL:
             print("WARNING: ENDPOINT_URL is not configured")
-            return False
+            is_valid = False
         if not cls.DEPLOYMENT_NAME:
             print("WARNING: DEPLOYMENT_NAME is not configured")
-            return False
-            
-        print("Configuration validated successfully")
-        return True
+            is_valid = False
+        
+        # Validate Document Intelligence configuration if requested
+        if check_document_intelligence:
+            if not cls.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT:
+                print("WARNING: AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT is not configured")
+                is_valid = False
+            if not cls.AZURE_DOCUMENT_INTELLIGENCE_KEY:
+                print("WARNING: AZURE_DOCUMENT_INTELLIGENCE_KEY is not configured")
+                is_valid = False
+        
+        if is_valid:
+            print("Configuration validated successfully")
+        
+        return is_valid
     
     @classmethod
     def get_llm_config(cls) -> Dict[str, Any]:
@@ -71,7 +91,6 @@ class Settings:
         return {
             "model": cls.DEPLOYMENT_NAME,
             "temperature": cls.AGENT_CONFIG["temperature"],
-            "max_tokens": cls.AGENT_CONFIG["max_tokens"],
         }
     
     @classmethod
@@ -89,8 +108,21 @@ class Settings:
             model=f"azure/{cls.DEPLOYMENT_NAME}",
             api_key=cls.AZURE_OPENAI_API_KEY,
             base_url=cls.ENDPOINT_URL,
-            api_version=cls.AZURE_OPENAI_API_VERSION
+            api_version=cls.AZURE_OPENAI_API_VERSION,
         )
+    
+    @classmethod
+    def get_document_intelligence_config(cls) -> Dict[str, str]:
+        """
+        Returns the configuration for Azure Document Intelligence.
+        
+        Returns:
+            Dictionary with Document Intelligence configuration
+        """
+        return {
+            "endpoint": cls.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT,
+            "api_key": cls.AZURE_DOCUMENT_INTELLIGENCE_KEY
+        }
 
 # Global configuration instance
 settings = Settings()

@@ -29,6 +29,7 @@ from tasks.task import (
 )
 
 from docling_processor import process_documents
+from document_intelligence_processor import process_documents as process_documents_di
 from chunking_processor import ChunkingProcessor, chunk_document_content
 from config.settings import settings as config
 
@@ -402,13 +403,14 @@ Total de chunks analizados: {len(chunk_results)}
         return consolidated_content
 
 
-def run_full_analysis(project_name: str, skip_processing: bool = False, max_tokens: int = 200000):
-    """Run complete analysis pipeline: Docling + CrewAI agents with automatic chunking.
+def run_full_analysis(project_name: str, skip_processing: bool = False, max_tokens: int = 200000, processor_type: str = "docling"):
+    """Run complete analysis pipeline: Document Processing + CrewAI agents with automatic chunking.
     
     Args:
         project_name: Name of the project to process
         skip_processing: If True, skip document processing and use existing concatenated file
         max_tokens: Maximum tokens per chunk (default: 200000)
+        processor_type: Type of processor to use ('docling' or 'document_intelligence')
     
     Returns:
         dict: Complete analysis results
@@ -452,14 +454,22 @@ def run_full_analysis(project_name: str, skip_processing: bool = False, max_toke
                 }
             }
         else:
-            # Step 1: Process documents with Docling
-            print("\nSTEP 1: Document Processing with Docling")
+            # Step 1: Process documents with selected processor
+            processor_name = "Docling" if processor_type.lower() == "docling" else "Azure Document Intelligence"
+            print(f"\nSTEP 1: Document Processing with {processor_name}")
             print("-" * 50)
             
             # Create processor with automatic chunking enabled
-            from docling_processor import DoclingProcessor
-            processor = DoclingProcessor(auto_chunk=True, max_tokens=max_tokens)
-            docling_result = processor.process_project_documents(project_name)
+            if processor_type.lower() == "document_intelligence":
+                from document_intelligence_processor import DocumentIntelligenceProcessor
+                endpoint = os.getenv('AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT')
+                api_key = os.getenv('AZURE_DOCUMENT_INTELLIGENCE_KEY')
+                processor = DocumentIntelligenceProcessor(endpoint=endpoint, api_key=api_key, auto_chunk=True, max_tokens=max_tokens)
+                docling_result = processor.process_project_documents(project_name)
+            else:
+                from docling_processor import DoclingProcessor
+                processor = DoclingProcessor(auto_chunk=True, max_tokens=max_tokens)
+                docling_result = processor.process_project_documents(project_name)
             
             if not docling_result or docling_result.get('metadata', {}).get('successful_documents', 0) == 0:
                 print("No documents were successfully processed. Cannot continue with analysis.")
@@ -834,9 +844,10 @@ def convert_json_to_csv(json_file_path: str):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='CrewAI + Docling Analysis System')
+    parser = argparse.ArgumentParser(description='CrewAI + Document Processing Analysis System')
     parser.add_argument('--full-analysis', type=str, help='Run full analysis on specified project')
     parser.add_argument('--skip-processing', action='store_true', help='Skip document processing and use existing concatenated file')
+    parser.add_argument('--processor', type=str, choices=['docling', 'document_intelligence'], default='docling', help='Document processor to use (default: docling)')
     parser.add_argument('--convert-json', type=str, help='Convert JSON analysis results to CSV files')
     
     args = parser.parse_args()
@@ -847,7 +858,7 @@ if __name__ == "__main__":
         print(f"\nJSON converted to CSV files: {args.convert_json}")
     elif args.full_analysis:
         # Run full analysis on the specified project
-        result = run_full_analysis(args.full_analysis, skip_processing=args.skip_processing)
+        result = run_full_analysis(args.full_analysis, skip_processing=args.skip_processing, processor_type=args.processor)
         if result:
             print(f"\nFull analysis completed for project: {args.full_analysis}")
         else:
