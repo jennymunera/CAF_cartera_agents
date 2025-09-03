@@ -109,6 +109,7 @@ class Settings:
             api_key=cls.AZURE_OPENAI_API_KEY,
             base_url=cls.ENDPOINT_URL,
             api_version=cls.AZURE_OPENAI_API_VERSION,
+            additional_drop_params=["stop"]
         )
     
     @classmethod

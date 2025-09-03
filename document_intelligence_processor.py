@@ -15,11 +15,19 @@ class DocumentIntelligenceProcessor:
     """Document processor using Azure Document Intelligence to extract and concatenate content."""
     
     def __init__(self, endpoint: str, api_key: str, input_dir: str = "input_docs", 
-                 output_dir: str = "output_docs", auto_chunk: bool = True, max_tokens: int = 200000):
+                 output_dir: str = "output_docs", auto_chunk: bool = True, max_tokens: int = 150000):
+        self.endpoint = endpoint
+        self.api_key = api_key
         self.input_dir = Path(input_dir)
         self.output_dir = Path(output_dir)
         self.auto_chunk = auto_chunk
         self.max_tokens = max_tokens
+        
+        # Initialize Document Intelligence client
+        self.client = DocumentIntelligenceClient(
+            endpoint=self.endpoint,
+            credential=AzureKeyCredential(self.api_key)
+        )
         
         # Create directories if they don't exist
         self.input_dir.mkdir(exist_ok=True)
@@ -27,7 +35,34 @@ class DocumentIntelligenceProcessor:
         
         # Initialize chunking processor if auto_chunk is enabled
         if self.auto_chunk:
-            self.chunking_processor = ChunkingProcessor(max_tokens=self.max_tokens)
+            self.chunking_processor = ChunkingProcessor(max_tokens=self.max_tokens, generate_jsonl=True)
+    
+    def _is_document_already_processed(self, file_path: Path, project_name: str) -> bool:
+        """Check if a document has already been processed by looking for output files.
+        
+        Args:
+            file_path: Path to the document file
+            project_name: Name of the project
+            
+        Returns:
+            bool: True if document has already been processed, False otherwise
+        """
+        try:
+            # Check if individual document markdown file exists in docs folder
+            doc_stem = file_path.stem  # filename without extension
+            doc_md_file = self.output_dir / project_name / "docs" / f"{doc_stem}.md"
+            
+            if doc_md_file.exists():
+                # Additional check: verify the file is not empty and has recent content
+                if doc_md_file.stat().st_size > 100:  # At least 100 bytes
+                    print(f"   Document already processed: {file_path.name} -> {doc_md_file.name}")
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"   Warning: Error checking if document {file_path.name} was processed: {str(e)}")
+            return False  # If we can't check, assume it needs processing
         
         self.client = DocumentIntelligenceClient(
             endpoint=endpoint,
@@ -74,7 +109,7 @@ class DocumentIntelligenceProcessor:
             # Extract content as markdown-like format
             markdown_content = self._convert_to_markdown(result)
             
-            # Extract metadata similar to DoclingProcessor
+            # Extract metadata from Document Intelligence response
             metadata = {
                 "filename": file_path.name,
                 "file_size": file_path.stat().st_size,
@@ -367,12 +402,33 @@ class DocumentIntelligenceProcessor:
         
         # Search for supported document files in the project folder
         supported_extensions = ['*.pdf', '*.docx', '*.xlsx', '*.pptx', '*.html', '*.csv', '*.png', '*.jpeg', '*.jpg', '*.tiff', '*.bmp', '*.webp']
-        document_files = []
+        all_document_files = []
         for ext in supported_extensions:
-            document_files.extend(project_path.glob(ext))
+            all_document_files.extend(project_path.glob(ext))
+        
+        # Filter documents by required prefixes (INI, IXP, DEC, ROP, IFS)
+        required_prefixes = ['INI', 'IXP', 'DEC', 'ROP', 'IFS']
+        document_files = []
+        filtered_out_files = []
+        
+        for file_path in all_document_files:
+            filename = file_path.name.upper()  # Convert to uppercase for comparison
+            if any(filename.startswith(prefix) for prefix in required_prefixes):
+                document_files.append(file_path)
+            else:
+                filtered_out_files.append(file_path)
+        
+        print(f"Found {len(all_document_files)} total document files")
+        print(f"Filtered to {len(document_files)} files with required prefixes (INI, IXP, DEC, ROP, IFS)")
+        if filtered_out_files:
+            print(f"Excluded {len(filtered_out_files)} files without required prefixes:")
+            for excluded_file in filtered_out_files[:5]:  # Show first 5 excluded files
+                print(f"   - {excluded_file.name}")
+            if len(filtered_out_files) > 5:
+                print(f"   ... and {len(filtered_out_files) - 5} more files")
         
         if not document_files:
-            print(f"Warning: No supported document files found in {project_path}")
+            print(f"Warning: No document files found with required prefixes (INI, IXP, DEC, ROP, IFS) in {project_path}")
             print(f"Supported extensions: {', '.join(supported_extensions)}")
             return {
                 "project_name": project_name,
@@ -382,18 +438,42 @@ class DocumentIntelligenceProcessor:
                     "total_documents": 0,
                     "successful_documents": 0,
                     "failed_documents": 0,
-                    "processing_status": "no_documents_found"
+                    "processing_status": "no_documents_with_required_prefixes"
                 }
             }
         
-        print(f"Found {len(document_files)} document files to process")
+        print(f"Processing {len(document_files)} document files with required prefixes")
         
-        # Process each document
+        # Process each document (skip already processed ones)
         processed_documents = []
         successful_count = 0
         failed_count = 0
+        skipped_count = 0
         
         for document_file in document_files:
+            # Check if document was already processed
+            if self._is_document_already_processed(document_file, project_name):
+                skipped_count += 1
+                # Create a mock successful result for already processed documents
+                doc_data = {
+                    "filename": document_file.name,
+                    "content": "[Document already processed - content available in output files]",
+                    "json_data": {},
+                    "metadata": {
+                        "filename": document_file.name,
+                        "file_size": document_file.stat().st_size,
+                        "content_length": 0,
+                        "processing_status": "skipped_already_processed",
+                        "pages": 0,
+                        "tables_found": 0,
+                        "images_found": 0,
+                        "confidence_score": 1.0
+                    }
+                }
+                processed_documents.append(doc_data)
+                continue
+            
+            # Process new document
             doc_data = self.process_single_document(document_file, model_id)
             processed_documents.append(doc_data)
             
@@ -402,10 +482,11 @@ class DocumentIntelligenceProcessor:
             else:
                 failed_count += 1
         
-        # Concatenate content from successful documents
+        # Concatenate content from successful documents (exclude skipped ones from content)
         concatenated_content = "\n\n" + "="*80 + "\n\n"
         concatenated_content += f"PROJECT: {project_name.upper()}\n"
         concatenated_content += f"PROCESSED DOCUMENTS: {successful_count}/{len(document_files)}\n"
+        concatenated_content += f"SKIPPED DOCUMENTS: {skipped_count}\n"
         concatenated_content += f"PROCESSOR: Azure Document Intelligence\n"
         concatenated_content += "="*80 + "\n\n"
         
@@ -424,6 +505,7 @@ class DocumentIntelligenceProcessor:
                 "total_documents": len(document_files),
                 "successful_documents": successful_count,
                 "failed_documents": failed_count,
+                "skipped_documents": skipped_count,
                 "processing_status": "completed"
             }
         }
@@ -434,6 +516,8 @@ class DocumentIntelligenceProcessor:
         print(f"Processing completed for {project_name}:")
         print(f"   Successful: {successful_count}")
         print(f"   Failed: {failed_count}")
+        print(f"   Skipped (already processed): {skipped_count}")
+        print(f"   Total documents: {len(document_files)}")
         
         return result
     
@@ -544,7 +628,7 @@ def list_available_projects(input_docs_path: str = "input_docs") -> List[str]:
 
 
 def process_documents(project_name: str, 
-                     processor_type: str = "docling",
+                     processor_type: str = "document_intelligence",
                      auto_chunk: bool = False,
                      input_docs_path: str = "input_docs",
                      output_docs_path: str = "output_docs") -> Dict[str, Any]:
@@ -552,7 +636,7 @@ def process_documents(project_name: str,
     
     Args:
         project_name: Name of the project folder to process
-        processor_type: Type of processor to use ('docling' or 'document_intelligence')
+        processor_type: Type of processor to use (only 'document_intelligence' is supported)
         auto_chunk: Whether to enable automatic chunking
         input_docs_path: Path to input documents directory
         output_docs_path: Path to output documents directory

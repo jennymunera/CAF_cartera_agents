@@ -9,7 +9,7 @@ import sys
 # Add the parent directory to the path so we can import our modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from docling_processor import DoclingProcessor
+from document_intelligence_processor import DocumentIntelligenceProcessor
 from config.settings import settings
 from agents.agents import (
     agente_auditorias,
@@ -51,9 +51,9 @@ def sample_pdf(temp_dir):
     return pdf_path
 
 @pytest.fixture
-def mock_docling_processor():
-    """Mock DoclingProcessor for testing."""
-    processor = Mock(spec=DoclingProcessor)
+def mock_document_intelligence_processor():
+    """Mock DocumentIntelligenceProcessor for testing."""
+    processor = Mock(spec=DocumentIntelligenceProcessor)
     processor.process_single_document.return_value = {
         'success': True,
         'content': 'Sample document content',

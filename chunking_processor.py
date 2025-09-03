@@ -1,13 +1,17 @@
 import re
 import tiktoken
+import json
 from typing import List, Dict, Any, Tuple
 from pathlib import Path
+from datetime import datetime
+from utils.jsonl_handler import JSONLHandler
+from schemas.validation_schemas import validate_corpus_chunk
 
 
 class ChunkingProcessor:
     """Procesador de chunking para dividir documentos grandes en fragmentos manejables."""
     
-    def __init__(self, max_tokens: int = 200000, overlap_tokens: int = 1000, model_name: str = "gpt-4"):
+    def __init__(self, max_tokens: int = 150000, overlap_tokens: int = 1000, model_name: str = "gpt-4", generate_jsonl: bool = True):
         """
         Inicializa el procesador de chunking.
         
@@ -15,10 +19,13 @@ class ChunkingProcessor:
             max_tokens: Máximo número de tokens por chunk
             overlap_tokens: Tokens de solapamiento entre chunks
             model_name: Nombre del modelo para calcular tokens
+            generate_jsonl: Si True, genera archivos JSONL además de chunks MD
         """
         self.max_tokens = max_tokens
         self.overlap_tokens = overlap_tokens
         self.model_name = model_name
+        self.generate_jsonl = generate_jsonl
+        self.jsonl_handler = JSONLHandler() if generate_jsonl else None
         
         # Inicializar el tokenizer
         try:
@@ -186,6 +193,23 @@ class ChunkingProcessor:
         
         return overlap_text
     
+    def _create_jsonl_record(self, chunk: Dict[str, Any], project_name: str, chunk_metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Crea un registro JSONL a partir de un chunk."""
+        return {
+            'id_chunk': f"{project_name}_chunk_{chunk['index']:03d}",
+            'proyecto': project_name,
+            'contenido': chunk['content'],
+            'tokens': chunk['tokens'],
+            'indice_chunk': chunk['index'],
+            'rango_secciones': chunk['sections_range'],
+            'estrategia_chunking': chunk_metadata.get('chunking_strategy', 'sections_with_overlap'),
+            'max_tokens_configurado': chunk_metadata.get('max_tokens_per_chunk', self.max_tokens),
+            'overlap_tokens': chunk_metadata.get('overlap_tokens', self.overlap_tokens),
+            'timestamp_procesamiento': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'fuente': 'document_intelligence_chunking',
+            'version_esquema': '1.0'
+        }
+    
     def process_document_content(self, content: str, project_name: str) -> Dict[str, Any]:
         """Procesa el contenido de un documento y lo divide en chunks."""
         print(f"\nIniciando chunking para proyecto: {project_name}")
@@ -234,18 +258,21 @@ class ChunkingProcessor:
         }
     
     def save_chunks(self, chunking_result: Dict[str, Any], output_dir: str = "output_docs") -> List[str]:
-        """Guarda los chunks en archivos separados en la nueva estructura de carpetas."""
+        """Guarda los chunks en archivos separados y genera un archivo JSONL individual por cada chunk."""
         project_name = chunking_result['project_name']
         
-        # Crear estructura de carpetas: output_docs/{project_name}/docs/
+        # Crear estructura de carpetas: output_docs/{project_name}/docs/ y agents_output/
         project_path = Path(output_dir) / project_name
         docs_path = project_path / "docs"
+        agents_output_path = project_path / "agents_output"
         docs_path.mkdir(parents=True, exist_ok=True)
+        agents_output_path.mkdir(parents=True, exist_ok=True)
         
         chunks = chunking_result['chunks']
         saved_files = []
         
         for chunk in chunks:
+            # Guardar chunk como archivo MD
             chunk_filename = f"{project_name}_chunk_{chunk['index']:03d}.md"
             chunk_filepath = docs_path / chunk_filename
             
@@ -265,11 +292,51 @@ class ChunkingProcessor:
                 f.write(chunk_content)
             
             saved_files.append(str(chunk_filepath))
+            
+            # Generar archivo JSONL individual para este chunk si está habilitado
+            if self.generate_jsonl:
+                jsonl_record = self._create_jsonl_record(chunk, project_name, chunking_result)
+                
+                # Crear archivo JSONL individual para este chunk
+                chunk_jsonl_filename = f"corpus_chunk_{chunk['index']:03d}.jsonl"
+                chunk_jsonl_path = agents_output_path / chunk_jsonl_filename
+                
+                # Validar y escribir registro JSONL individual
+                success = self.jsonl_handler.write_jsonl(
+                    [jsonl_record],  # Solo un registro por archivo
+                    str(chunk_jsonl_path), 
+                    validate_func=validate_corpus_chunk
+                )
+                
+                if success:
+                    saved_files.append(str(chunk_jsonl_path))
+                    print(f"Chunk JSONL generado: {chunk_jsonl_path}")
+                else:
+                    print(f"Error generando chunk JSONL: {chunk_jsonl_path}")
+        
+        # También generar corpus JSONL completo para compatibilidad con documentos sin chunking
+        if self.generate_jsonl and len(chunks) > 1:
+            print(f"\nGenerando corpus JSONL completo para compatibilidad...")
+            all_jsonl_records = []
+            for chunk in chunks:
+                jsonl_record = self._create_jsonl_record(chunk, project_name, chunking_result)
+                all_jsonl_records.append(jsonl_record)
+            
+            corpus_jsonl_path = agents_output_path / f"corpus_document_intelligence.jsonl"
+            success = self.jsonl_handler.write_jsonl(
+                all_jsonl_records, 
+                str(corpus_jsonl_path), 
+                validate_func=validate_corpus_chunk
+            )
+            
+            if success:
+                saved_files.append(str(corpus_jsonl_path))
+                print(f"Corpus JSONL completo generado: {corpus_jsonl_path}")
+                print(f"Total registros JSONL: {len(all_jsonl_records)}")
         
         # Guardar metadatos del chunking en la carpeta docs
         metadata_file = docs_path / f"{project_name}_chunking_metadata.json"
         with open(metadata_file, 'w', encoding='utf-8') as f:
-            import json
             json.dump(chunking_result, f, indent=2, ensure_ascii=False)
         
         saved_files.append(str(metadata_file))
@@ -281,9 +348,9 @@ class ChunkingProcessor:
         return saved_files
 
 
-def chunk_document_content(content: str, project_name: str, max_tokens: int = 200000) -> Dict[str, Any]:
-    """Función de conveniencia para hacer chunking de contenido."""
-    processor = ChunkingProcessor(max_tokens=max_tokens)
+def chunk_document_content(content: str, project_name: str, max_tokens: int = 150000, generate_jsonl: bool = True) -> Dict[str, Any]:
+    """Función de conveniencia para hacer chunking de contenido con generación opcional de JSONL."""
+    processor = ChunkingProcessor(max_tokens=max_tokens, generate_jsonl=generate_jsonl)
     return processor.process_document_content(content, project_name)
 
 
