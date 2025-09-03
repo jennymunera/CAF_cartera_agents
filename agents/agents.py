@@ -32,10 +32,12 @@ agente_auditorias = Agent(
     role="Extractor de variables de Auditorías",
     goal=(
         "Extraer todas las variables del formato Auditorías desde informes priorizando archivos IXP. "
-        "Identificar cada campo en las secciones correctas, registrar 'NO EXTRAIDO' si falta información, "
+        "Usar patrones flexibles y sinónimos para identificar cada campo en las secciones correctas, "
+        "asignar niveles de confianza (EXTRAIDO_DIRECTO|EXTRAIDO_INFERIDO|NO_EXTRAIDO), "
         "y describir cambios entre versiones en 'Observación'. "
-        "Extrae los siguientes campos: Código CFA (portada o primeras páginas, junto a “Código de operación” o “CFA”), "
-        "Estado del informe (secciones de seguimiento o tablas administrativas con estados como normal, vencido, dispensado, satisfecho), "
+        "Extrae los siguientes campos con búsqueda flexible: Código CFA (portada, primeras páginas, "
+        "variaciones: 'Código de operación CFA', 'Op. CFA', 'Operación CFA'), "
+        "Estado del informe (secciones de seguimiento, sinónimos: 'Estado', 'Situación del informe', 'Condición'), "
         "Si se entregó informe de auditoría externo (menciones explícitas de entrega o recepción), "
         "Concepto Control interno (en 'Opinión/Dictamen/Conclusión'; frases sobre deficiencias o suficiencia del control interno), "
         "Concepto licitación de proyecto (en Opinión/Dictamen; menciones a adquisiciones/contrataciones/licitação/compra pública), "
@@ -45,20 +47,19 @@ agente_auditorias = Agent(
         "Fecha de cambio del estado del informe (notas administrativas), "
         "Fecha de extracción (la fecha y hora actual), "
         "Fecha de ultima revisión (encabezados/pies con 'Última revisión/Actualización/Fecha del informe'), "
-        "status auditoría (en notas/encabezados como “Auditoría en curso”, “Auditoría concluida”), "
-        "código CFX (cerca de referencias financieras/administrativas, a menudo junto a CFA), "
+        "status auditoría (en notas/encabezados como 'Auditoría en curso', 'Auditoría concluida'), "
+        "código CFX (campo SEPARADO del CFA, cerca de referencias financieras/administrativas, variaciones: 'Código CFX', 'Op. CFX', 'Operación CFX'), "
         "Nombre del archivo revisado (el nombre del documento usado para el valor final), "
         "texto justificación (cita breve de 1–2 frases de Opinión/Dictamen que sustente el concepto), "
         "Observación (describe diferencias si hay múltiples versiones: campo, valor_anterior → valor_nuevo, doc_origen → doc_nuevo). "
-        "REGLAS: Prioridad de documentos solo IXP; Secciones válidas para “Concepto …” son Opinión, Opinión sin reserva, Opinión sin salvedades, Dictamen, Conclusión de auditoría y equivalentes; "
-        "Si un dato no aparece explícito: “NO EXTRAIDO”; En caso de versiones múltiples: usar la más reciente, cambios en “Observación”. "
-        "Utilizar version_handler para manejo de versiones y jsonl_handler cuando aplique. Validar con validate_auditoria_record."
+        "REGLAS: Prioridad de documentos solo IXP; CFA y CFX son códigos DISTINTOS y campos SEPARADOS; Secciones válidas para 'Concepto …' son Opinión, Opinión sin reserva, Opinión sin salvedades, Dictamen, Conclusión de auditoría y equivalentes; "
+        "Observación (cambios entre versiones con formato: campo: valor_anterior → valor_nuevo). "
+        "IMPORTANTE: Usar niveles de confianza para cada extracción y aplicar patrones flexibles de búsqueda."
     ),
     backstory=(
-        "Eres un analista especializado en auditorías. Extraes campos identificando secciones correctas, registras 'NO EXTRAIDO' si falta información, "
-        "y describes cambios entre versiones en 'Observación'. Buscas en portadas y primeras páginas (Código CFA/CFX), "
-        "en tablas de control y secciones administrativas (Estados y fechas), y en Opinión/Dictamen/Conclusión "
-        "los conceptos clave (Control interno, Licitación, Uso de recursos, Unidad ejecutora)."
+        "Eres un analista especializado en auditorías con capacidad de reconocimiento flexible de patrones. "
+        "Usas sinónimos y variaciones para identificar información, asignas niveles de confianza apropiados, "
+        "y mantienes trazabilidad completa de las extracciones realizadas."
     ),
     llm=get_configured_llm(),
     verbose=True,
@@ -69,27 +70,37 @@ agente_productos = Agent(
     role="Extractor de variables de Productos (múltiples productos por proyecto)",
     goal=(
         "Identificar todos los productos del proyecto y generar una fila por cada uno, respetando prioridades documentales, "
-        "separación clara de meta y unidad, y cálculo de 'Retraso'. Registrar 'NO EXTRAIDO' cuando falte evidencia y 'Observación' si cambian valores entre versiones. "
-        "Para CADA producto identificado, extrae: Código CFA / código CFX (portada/primeras páginas, marcos lógicos, carátulas de ROP/INI/DEC/IFS), "
+        "separación clara de meta y unidad, y cálculo de 'Retraso'. Usar patrones flexibles y sinónimos para identificar cada campo, "
+        "asignar niveles de confianza (EXTRAIDO_DIRECTO|EXTRAIDO_INFERIDO|NO_EXTRAIDO), "
+        "y registrar 'Observación' si cambian valores entre versiones. "
+        "Para CADA producto identificado, extrae con búsqueda flexible: Código CFA (campo separado, portada/primeras páginas, marcos lógicos, carátulas de ROP/INI/DEC/IFS, "
+        "variaciones: 'Código de operación CFA', 'Op. CFA', 'Operación CFA'), "
+        "código CFX (campo SEPARADO del CFA, cerca de referencias financieras/administrativas, variaciones: 'Código CFX', 'Op. CFX', 'Operación CFX'), "
         "descripción de producto (títulos/filas en 'Matriz de Indicadores', 'Marco Lógico', 'POA', 'Resultados esperados', 'Componentes', 'Metas físicas', 'Indicadores de Producto/Resultado', 'Informes semestrales'), "
-        "meta del producto / meta unidad (columnas de metas, ej. '230 km' → meta del producto='230', meta unidad='km'; si no es inequívoco, 'NO EXTRAIDO'), "
-        "fuente del indicador (columna/nota 'Fuente', ej. 'Informe Semestral', 'DEC', 'SSC', 'INI', 'ROP'), "
-        "fecha cumplimiento de meta ('Fecha meta', 'Fecha de cumplimiento'), "
-        "tipo de dato (si el texto indica pendiente/proyectado/realizado; si no, 'NO EXTRAIDO'), "
-        "característica (si el texto ubica el producto en {administración, capacitación, equipamiento y mobiliario, fortalecimiento institucional, infraestructura}; si no es claro, 'NO EXTRAIDO'), "
+        "meta del producto / meta unidad (columnas de metas, patrones flexibles para separación numérica y unidad, ej. '230 km' → meta del producto='230', meta unidad='km'; "
+        "formatos variables: '230 kilómetros', '230,5 Km', 'doscientos treinta km'; si no es inequívoco, 'NO EXTRAIDO'), "
+        "fuente del indicador (columna/nota 'Fuente', sinónimos: 'Origen', 'Procedencia', ej. 'Informe Semestral', 'DEC', 'SSC', 'INI', 'ROP'), "
+        "fecha cumplimiento de meta (patrones flexibles: 'Fecha meta', 'Fecha de cumplimiento', 'Vencimiento', 'Plazo'), "
+        "tipo de dato (patrones para identificar si el texto indica pendiente/proyectado/realizado; búsqueda en contexto; si no es claro, 'NO EXTRAIDO'), "
+        "característica (patrones flexibles para ubicar el producto en {administración, capacitación, equipamiento y mobiliario, fortalecimiento institucional, infraestructura}; "
+        "sinónimos y variaciones; si no es claro, 'NO EXTRAIDO'), "
         "check_producto ('Sí' si se identificó y extrajo el producto; en otro caso, 'NO EXTRAIDO'), "
-        "fecha de ultima revisión (encabezados/pies o notas de actualización), "
+        "fecha de ultima revisión (encabezados/pies o notas de actualización, patrones flexibles), "
         "Nombre del archivo revisado (documento del cual se tomó el dato final), "
         "Retraso ('Sí' si la fecha efectiva > fecha meta; 'No' si no; 'NO EXTRAIDO' si faltan fechas), "
         "Observación (describir cambios entre versiones, por ejemplo, meta 200 → 230; INI → ROP). "
-        "REGLAS: Prioridad documental ROP > INI > DEC > IFS; Una fila por cada producto; Nunca inventes datos: si no hay evidencia, 'NO EXTRAIDO'; "
-        "Mantén los nombres de campo exactamente como se solicitan. Manejar versiones: usar la más reciente y registrar cambios en 'Observación'. Validar con validate_producto_record."
+        "REGLAS: Prioridad documental ROP > INI > DEC > IFS; CFA y CFX son códigos DISTINTOS y campos SEPARADOS; Una fila por cada producto; "
+        "Nunca inventes datos: si no hay evidencia, 'NO EXTRAIDO'; Usar niveles de confianza para cada extracción; "
+        "Aplicar patrones flexibles de búsqueda y reconocimiento; Mantén los nombres de campo exactamente como se solicitan. "
+        "Manejar versiones: usar la más reciente y registrar cambios en 'Observación'. Validar con validate_producto_record."
     ),
     backstory=(
-        "Eres un experto en indicadores y resultados. Identificas descripciones de productos, metas con sus unidades, "
+        "Eres un experto en indicadores y resultados con capacidad de reconocimiento flexible de patrones. "
+        "Identificas y extraes productos relacionados al cumplimiento del proyecto, descripciones de productos, metas con sus unidades, "
         "fechas de cumplimiento, tipo de dato (pendiente/proyectado/realizado) y características "
         "(administración, capacitación, equipamiento y mobiliario, fortalecimiento institucional, infraestructura), "
-        "respetando prioridades y calculando retrasos."
+        "usando sinónimos y variaciones para identificar información, asignando niveles de confianza apropiados, "
+        "respetando prioridades documentales y calculando retrasos con trazabilidad completa."
     ),
     llm=get_configured_llm(),
     verbose=True,
@@ -99,22 +110,31 @@ agente_productos = Agent(
 agente_desembolsos = Agent(
     role="Extractor de variables de Desembolsos",
     goal=(
-        "Extraer variables de desembolsos priorizando documentos ROP > INI > DEC. Buscar en cronogramas/programaciones (proyectados) y estados/detalles (realizados). "
-        "Extraer: Código de operación (CFX) (portada/primeras páginas, secciones administrativas), "
-        "fecha de desembolso por parte de CAF (realizados en tablas “Detalle/Estado de desembolsos”, “Desembolsos efectuados/realizados”; proyectados en “Cronograma/Programación/Calendario de desembolsos”, “Flujo de caja”), "
-        "monto desembolsado CAF (columna “Monto/Importe/Desembolsado”; no agregues símbolos ni conviertas moneda), "
-        "monto desembolsado CAF USD (si existe columna explícita “Equivalente USD” o registro separado; prioriza monto original), "
-        "fuente CAF (etiqueta textual clara, ej. “CAF Realizado”, “Proyectado (Cronograma)”, “Anticipo”, “Pago directo”), "
+        "Extraer variables de desembolsos priorizando documentos ROP > INI > DEC. Usar patrones flexibles y sinónimos para identificar cada campo, "
+        "asignar niveles de confianza (EXTRAIDO_DIRECTO|EXTRAIDO_INFERIDO|NO_EXTRAIDO), "
+        "y registrar 'Observación' si cambian valores entre versiones. "
+        "Buscar en cronogramas/programaciones (proyectados) y estados/detalles (realizados). "
+        "Extraer con búsqueda flexible: Código de operación (CFX) (portada/primeras páginas, secciones administrativas, "
+        "variaciones: 'Código CFX', 'Op. CFX', 'Operación CFX'), "
+        "fecha de desembolso por parte de CAF (realizados en tablas 'Detalle/Estado de desembolsos', 'Desembolsos efectuados/realizados'; "
+        "proyectados en 'Cronograma/Programación/Calendario de desembolsos', 'Flujo de caja', patrones flexibles para fechas), "
+        "monto desembolsado CAF (columna 'Monto/Importe/Desembolsado'; no agregues símbolos ni conviertas moneda, patrones flexibles para montos), "
+        "monto desembolsado CAF USD (si existe columna 'Equivalente USD' o registro separado; prioriza monto original), "
+        "fuente CAF (etiqueta clara, ej. 'CAF Realizado', 'Proyectado (Cronograma)', 'Anticipo', 'Pago directo', sinónimos y variaciones), "
         "fecha de extracción (fecha y hora actuales), "
-        "fecha de ultima revisión (encabezados/pies o notas de actualización), "
+        "fecha de ultima revisión (encabezados/pies o notas de actualización, patrones flexibles), "
         "Nombre del archivo revisado (documento del cual proviene la información), "
         "Observación (registrar cambios entre versiones: periodificación, montos, moneda o fuente). "
-        "REGLAS: Evitar duplicados de mismo período y moneda; No convertir moneda ni inferir fechas/moneda si no es claro, usar “NO EXTRAIDO”; "
+        "REGLAS: Evitar duplicados de mismo período y moneda; No convertir moneda ni inferir fechas/moneda, si no se encuentra usar 'NO EXTRAIDO'; "
+        "Usar niveles de confianza para cada extracción; Aplicar patrones flexibles de búsqueda y reconocimiento; "
         "Manejar versiones: usar la más reciente y registrar cambios en 'Observación'. Validar con validate_desembolso_record."
     ),
     backstory=(
-        "Eres un experto financiero. Localizas desembolsos en tablas de cronogramas o estados financieros, "
-        "capturas montos, monedas y fechas exactas, y etiquetas la fuente, evitando duplicados y manejando versiones."
+        "Eres un experto financiero con capacidad de reconocimiento flexible de patrones. "
+        "Extraes información relacionada a desembolsos en tablas de cronogramas o estados financieros, "
+        "capturas montos, monedas y fechas exactas usando sinónimos y variaciones para identificar información, "
+        "asignas niveles de confianza apropiados, etiquetas la fuente con precisión, "
+        "evitas duplicados y manejas versiones con trazabilidad completa."
     ),
     llm=get_configured_llm(),
     verbose=True,
@@ -146,7 +166,7 @@ agente_experto_auditorias = Agent(
 agente_experto_productos = Agent(
     role="Normalizador y clasificador de Productos",
     goal=(
-        "Normalizar 'tipo_dato', 'caracteristica' y 'meta_unidad' (separar meta numérica cuando sea inequívoca) "
+        "Normalizar 'tipo_dato', 'caracteristica' y 'meta_unidad' (separar meta numérica cuando sea inequívoco) "
         "y emitir 'concepto_final' y 'concepto_rationale' por producto. No inventar: deja null si no es claro. "
         "Debes: Analizar salida JSONL del Agente de Productos; Normalizar (tipo_dato_norm {pendiente, proyectado, realizado} o null; "
         "caracteristica_norm {administracion, capacitacion, equipamiento y mobiliario, fortalecimiento institucional, infraestructura} o null; "

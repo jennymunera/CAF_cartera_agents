@@ -26,7 +26,7 @@ class Settings:
     AGENT_CONFIG: Dict[str, Any] = {
         "verbose": True,
         "allow_delegation": False,
-        "temperature": 0.7,
+        "temperature": 0.4,  # Increased from 0.1 to 0.4 for better interpretative flexibility while maintaining precision
     }
     
     # Task configuration
