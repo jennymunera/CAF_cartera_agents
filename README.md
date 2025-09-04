@@ -6,11 +6,14 @@ Este proyecto implementa un sistema inteligente que combina **Docling** para el 
 
 ### Características Principales
 - Procesamiento avanzado de documentos con **Docling**
-- Sistema de 7 agentes especializados con **CrewAI**
+- **Sistema RAG integrado** con Azure Document Intelligence + Dense Embeddings + ChromaDB
+- Sistema de 7 agentes especializados con **CrewAI** y capacidades RAG
+- **Recuperación híbrida** con fusión RRF y re-ranking
 - Extracción inteligente de datos financieros
 - Detección automática de versiones y cambios
 - Generación de reportes CSV estructurados
 - Trazabilidad completa de origen de datos
+- **Observabilidad y métricas** del sistema RAG
 - Suite completa de tests automatizados
 
 ## 2. Functional Requirements
@@ -111,10 +114,46 @@ DoclingDocument (with provenance)
                     Final CSVs: Audits / Products / Disbursements
 ```
 
-**Total: 7 agents**
+**Total: 7 agentes**
 - 3 specialized agents (Audits, Products, Disbursements)
 - 3 expert agents (one for each specialized)
 - 1 final concatenator agent
+
+### 3.1 Sistema RAG Integrado
+
+El sistema incluye un **módulo RAG (Retrieval-Augmented Generation)** completo que potencia las capacidades de los agentes CrewAI:
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Documentos    │───▶│  Azure Document  │───▶│   Procesamiento │
+│   (PDF, DOCX)   │    │   Intelligence   │    │   y Chunking    │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                                                         │
+                                                         ▼
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│  Agentes CrewAI │◀───│   RAG Pipeline   │◀───│ Embeddings+Chroma│
+│  con RAG Tool   │    │  (Híbrido + RRF) │    │   Vector Store  │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+```
+
+#### Componentes RAG:
+- **Azure Document Intelligence**: Extracción de texto de alta calidad
+- **Dense Embeddings**: Representación semántica multilingüe
+- **ChromaDB**: Base de datos vectorial con indexación HNSW
+- **Recuperación Híbrida**: Combinación de búsqueda semántica y por palabras clave
+- **RRF Fusion**: Fusión de resultados con Reciprocal Rank Fusion
+- **Re-ranking**: Mejora de relevancia con cross-encoder
+- **RAG Tool**: Herramienta `rag_search` disponible para todos los agentes
+
+#### Capacidades RAG de los Agentes:
+Todos los agentes especializados y expertos tienen acceso a la herramienta `rag_search`:
+
+```python
+# Ejemplos de uso en agentes:
+rag_search("código CFA auditoría")  # Búsqueda de códigos CFA
+rag_search("cronograma desembolsos CAF", document_types=["ROP", "INI"])  # Con filtros
+rag_search("productos metas indicadores", max_results=10)  # Límite de resultados
+```
 
 ## 4. Implementation Guide
 - Configure Docling to preserve provenance.
@@ -137,7 +176,17 @@ Recommendations: use Python (CLI or API of Docling and CrewAI), YAML for agent c
 Agentes Jen/
 ├── agents/                    # Módulo de agentes CrewAI
 │   ├── __init__.py
-│   └── agents.py                 # 7 agentes especializados
+│   └── agents.py                 # 7 agentes especializados + RAG Tool
+├── rag/                       # Sistema RAG completo
+│   ├── __init__.py               # Exportaciones principales
+│   ├── config.py                 # Configuración RAG
+│   ├── document_processor.py     # Azure Document Intelligence
+│   ├── embeddings.py             # Dense embeddings
+│   ├── vector_store.py           # ChromaDB integration
+│   ├── retriever.py              # Recuperación híbrida + RRF
+│   ├── rag_pipeline.py           # Pipeline principal RAG
+│   ├── observability.py          # Métricas y monitoreo
+│   └── evaluation.py             # Sistema de evaluación
 ├── config/                    # Configuración del sistema
 │   └── settings.py               # Configuraciones centralizadas
 ├── tasks/                     # Definición de tareas
@@ -147,6 +196,8 @@ Agentes Jen/
 │   ├── __init__.py
 │   ├── conftest.py               # Configuración de pytest
 │   ├── test_crewai_workflow.py   # Tests del workflow CrewAI
+│   ├── test_crewai_rag_integration.py # Tests integración RAG
+│   ├── test_rag_system.py        # Tests del sistema RAG
 │   ├── test_docling_processor.py # Tests del procesador Docling
 │   ├── test_integration.py       # Tests de integración
 │   ├── test_integration_pipeline.py # Tests del pipeline completo
@@ -158,13 +209,18 @@ Agentes Jen/
 │   └── CFA010515/               # Proyecto ejemplo 4
 ├── output_docs/               # Documentos procesados
 ├── docling_processor.py       # Procesador de documentos Docling
+├── setup_rag.py               # Configuración automática del sistema RAG
+├── index_documents.py         # Script de indexación de documentos
+├── demo_rag_integration.py    # Demostración del sistema RAG
 ├── main.py                    # Script principal del sistema
 ├── run_tests.py               # Script para ejecutar tests
 ├── pytest.ini                # Configuración de pytest
 ├── requirements.txt           # Dependencias del proyecto
+├── requirements_rag.txt       # Dependencias específicas RAG
 ├── .env                       # Variables de entorno
 ├── context.md                 # Contexto del proyecto
 ├── REPORTE_FINAL_SISTEMA.md   # Reporte final del sistema
+├── README_RAG.md              # Documentación completa del sistema RAG
 └── README.md                  # Este archivo
 ```
 
@@ -192,13 +248,23 @@ conda activate crewai-docling
 
 ### 3. Instalar dependencias
 ```bash
+# Dependencias principales
 pip install -r requirements.txt
+
+# Dependencias RAG (opcional, para capacidades RAG)
+pip install -r requirements_rag.txt
+
+# O configuración automática del sistema RAG
+python setup_rag.py
 ```
 
 ### 4. Verificar instalación
 ```bash
 # Ejecutar tests para verificar que todo funciona
 python run_tests.py
+
+# Verificar sistema RAG (si está instalado)
+python demo_rag_integration.py
 ```
 
 ## Configuración
@@ -209,6 +275,10 @@ Crea un archivo `.env` en la raíz del proyecto:
 # Configuración de OpenAI
 OPENAI_API_KEY=tu_clave_api_aqui
 OPENAI_MODEL_NAME=gpt-4-turbo-preview
+
+# Configuración Azure Document Intelligence (para RAG)
+AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=tu_endpoint_azure
+AZURE_DOCUMENT_INTELLIGENCE_KEY=tu_clave_azure
 
 # Configuración del proyecto
 PROJECT_NAME=CrewAI_Docling_System
@@ -253,8 +323,105 @@ python run_tests.py
 
 # Tests específicos
 pytest test/test_docling_processor.py -v
- pytest test/test_integration.py -v
- ```
+pytest test/test_integration.py -v
+
+# Tests del sistema RAG
+pytest test/test_rag_system.py -v
+pytest test/test_crewai_rag_integration.py -v
+```
+
+## Uso del Sistema RAG
+
+### 1. Configuración inicial del RAG
+```bash
+# Configurar sistema RAG automáticamente
+python setup_rag.py
+
+# Verificar configuración
+python setup_rag.py --check
+```
+
+### 2. Indexación de documentos
+```bash
+# Indexar un documento específico
+python index_documents.py --file "documento.pdf"
+
+# Indexar directorio completo
+python index_documents.py --path "./documentos" --recursive
+
+# Indexar con configuración específica
+python index_documents.py --path "./docs" --batch-size 10 --clear-index
+
+# Indexar documentos de muestra
+python index_documents.py --sample
+```
+
+### 3. Uso de RAG en agentes CrewAI
+```python
+from agents.agents import agente_auditorias
+from crewai import Task, Crew
+
+# Crear tarea que utiliza capacidades RAG
+task = Task(
+    description="""
+    Analiza el documento usando rag_search para encontrar:
+    1. Códigos CFA y CFX
+    2. Estados de auditoría
+    3. Conceptos y opiniones
+    
+    Usa: rag_search("término de búsqueda")
+    """,
+    agent=agente_auditorias,
+    expected_output="Análisis completo con extracciones RAG"
+)
+
+crew = Crew(agents=[agente_auditorias], tasks=[task])
+result = crew.kickoff()
+```
+
+### 4. Búsquedas RAG directas
+```python
+from rag import RAGPipeline, RAGConfig
+
+# Configurar pipeline
+config = RAGConfig.from_json("rag_config.json")
+pipeline = RAGPipeline(config)
+
+# Búsqueda simple
+results = pipeline.query("cronograma desembolsos")
+
+# Búsqueda con filtros
+results = pipeline.query(
+    query="productos infraestructura",
+    metadata_filter={"document_type": "ROP"},
+    top_k=10
+)
+
+# Búsqueda híbrida con re-ranking
+results = pipeline.query(
+    query="concepto auditoría",
+    use_reranking=True,
+    rerank_top_k=20
+)
+```
+
+### 5. Herramienta RAG en agentes
+Todos los agentes tienen acceso a la herramienta `rag_search`:
+
+```python
+# Sintaxis de la herramienta RAG
+rag_search(
+    query="término de búsqueda",
+    document_types=["ROP", "INI", "DEC"],  # Opcional
+    max_results=5  # Opcional
+)
+
+# Ejemplos de uso:
+rag_search("código CFA operación")
+rag_search("opinión dictamen auditoría", document_types=["IXP"])
+rag_search("cronograma desembolsos CAF", document_types=["ROP", "INI"])
+rag_search("productos metas indicadores", max_results=10)
+```
 
 ## Arquitectura Técnica
 
@@ -280,6 +447,7 @@ Documentos → Docling → Agentes Especializados → Agentes Expertos → Conca
 
 ## Dependencias Principales
 
+### Dependencias Core
 | Dependencia | Versión | Propósito |
 |-------------|---------|----------|
 | `crewai` | >=0.28.8 | Orquestación de agentes |
@@ -288,6 +456,18 @@ Documentos → Docling → Agentes Especializados → Agentes Expertos → Conca
 | `langchain` | >=0.1.0 | Framework LLM |
 | `pandas` | >=2.0.0 | Manipulación de datos |
 | `pytest` | >=7.4.0 | Testing framework |
+
+### Dependencias RAG (requirements_rag.txt)
+| Dependencia | Versión | Propósito |
+|-------------|---------|----------|
+| `azure-ai-documentintelligence` | >=1.0.0 | Extracción de texto Azure |
+| `FlagEmbedding` | >=1.2.0 | Dense embeddings y re-ranking |
+| `chromadb` | >=0.4.0 | Base de datos vectorial |
+| `torch` | >=2.0.0 | Framework ML para embeddings |
+| `transformers` | >=4.30.0 | Modelos de transformers |
+| `sentence-transformers` | >=2.2.0 | Embeddings de oraciones |
+| `rank-bm25` | >=0.2.2 | Búsqueda BM25 |
+| `scikit-learn` | >=1.3.0 | Utilidades ML |
 
 ## Suite de Tests
 
@@ -352,6 +532,7 @@ Para soporte técnico o preguntas:
 - Email: [tu-email@ejemplo.com]
 - Issues: [GitHub Issues]
 - Documentación: Ver `context.md` y `REPORTE_FINAL_SISTEMA.md`
+- **Documentación RAG**: Ver `README_RAG.md` para guía completa del sistema RAG
 
 ---
 

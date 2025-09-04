@@ -1,4 +1,5 @@
 from crewai import Agent
+from crewai.tools import BaseTool
 from config.settings import Settings
 from datetime import datetime
 from utils.version_handler import version_handler
@@ -12,11 +13,94 @@ from schemas.validation_schemas import (
     validate_desembolso_expert_record,
     validate_corpus_chunk
 )
+from rag import RAGConfig, RAGPipeline
+from typing import Optional, Dict, Any, List
+from pydantic import BaseModel, Field
+import json
+import os
 
 # Configuration
 settings = Settings()
 
-# Herramientas comunes eliminadas - ya no son necesarias
+# RAG System Integration
+class RAGToolSchema(BaseModel):
+    """Schema para los argumentos del RAG Tool"""
+    query: str = Field(..., description="La consulta de búsqueda semántica")
+    document_types: Optional[List[str]] = Field(default=None, description="Tipos de documento a filtrar (opcional)")
+    max_results: int = Field(default=5, description="Número máximo de resultados a retornar")
+
+class RAGTool(BaseTool):
+    """Herramienta RAG para búsqueda semántica en documentos indexados"""
+    
+    name: str = "rag_search"
+    description: str = (
+        "Busca información relevante en documentos indexados usando búsqueda semántica. "
+        "Útil para encontrar información específica sobre auditorías, productos, desembolsos, "
+        "códigos CFA/CFX, fechas, conceptos y cualquier otro dato en los documentos del proyecto."
+    )
+    args_schema: type[BaseModel] = RAGToolSchema
+    
+    def __init__(self, rag_pipeline: Optional[RAGPipeline] = None, **kwargs):
+        super().__init__(**kwargs)
+        self._rag_pipeline = rag_pipeline or self._initialize_rag_pipeline()
+    
+    def _initialize_rag_pipeline(self) -> Optional[RAGPipeline]:
+        """Inicializa el pipeline RAG si no se proporciona"""
+        try:
+            config_path = os.path.join(os.getcwd(), "rag_config.json")
+            if os.path.exists(config_path):
+                config = RAGConfig.load_from_file(config_path)
+                return RAGPipeline(config)
+            else:
+                print("Warning: RAG config not found. RAG functionality disabled.")
+                return None
+        except Exception as e:
+            print(f"Warning: Could not initialize RAG pipeline: {e}")
+            return None
+    
+    def _run(self, query: str, document_types: Optional[List[str]] = None, 
+             max_results: int = 5, **kwargs) -> str:
+        """Ejecuta búsqueda RAG"""
+        if not self._rag_pipeline:
+            return "RAG system not available. Please ensure the system is properly configured."
+        
+        try:
+            # Preparar filtros de metadatos si se especifican tipos de documento
+            metadata_filter = {}
+            if document_types:
+                metadata_filter["document_type"] = {"$in": document_types}
+            
+            # Realizar búsqueda híbrida
+            results = self._rag_pipeline.query(
+                query=query,
+                top_k=max_results,
+                metadata_filter=metadata_filter if metadata_filter else None,
+                use_reranking=True
+            )
+            
+            if not results:
+                return f"No se encontraron resultados relevantes para: {query}"
+            
+            # Formatear resultados para el agente
+            formatted_results = []
+            for i, result in enumerate(results, 1):
+                chunk_info = {
+                    "resultado": i,
+                    "relevancia": f"{result.get('score', 0):.3f}",
+                    "documento": result.get('metadata', {}).get('source_file', 'Desconocido'),
+                    "tipo_documento": result.get('metadata', {}).get('document_type', 'Desconocido'),
+                    "pagina": result.get('metadata', {}).get('page_number', 'N/A'),
+                    "contenido": result.get('content', '')[:500] + ('...' if len(result.get('content', '')) > 500 else '')
+                }
+                formatted_results.append(chunk_info)
+            
+            return json.dumps(formatted_results, ensure_ascii=False, indent=2)
+            
+        except Exception as e:
+            return f"Error en búsqueda RAG: {str(e)}"
+
+# Inicializar herramienta RAG global
+rag_tool = RAGTool()
 
 # Function to get LLM lazily
 def get_configured_llm():
@@ -34,7 +118,9 @@ agente_auditorias = Agent(
         "Extraer todas las variables del formato Auditorías desde informes IXP. "
         "Revisar índice del documento y priorizar secciones Opinión/Dictamen/Conclusión para conceptos. "
         "Usar patrones flexibles y sinónimos para identificar cada campo, asignar niveles de confianza "
-        "(EXTRAIDO_DIRECTO|EXTRAIDO_INFERIDO|NO_EXTRAIDO), y consultar portal SSC para trayectorias de estado. "
+        "(EXTRAIDO_DIRECTO|EXTRAIDO_INFERIDO|NO_EXTRAIDO)"
+        "IMPORTANTE: Usa la herramienta rag_search para buscar información específica en los documentos indexados. "
+        "Busca términos como 'código CFA', 'auditoría', 'opinión', 'dictamen', 'conclusión', etc. "
         "Extrae los siguientes campos con búsqueda flexible: Código CFA (portada, primeras páginas, "
         "variaciones: 'Código de operación CFA', 'Op. CFA', 'Operación CFA'), "
         "Estado del informe (secciones de seguimiento, sinónimos: 'Estado', 'Situación del informe', 'Condición'), "
@@ -59,8 +145,10 @@ agente_auditorias = Agent(
     backstory=(
         "Eres un analista especializado en auditorías con capacidad de reconocimiento flexible de patrones. "
         "Usas sinónimos y variaciones para identificar información, asignas niveles de confianza apropiados, "
-        "y mantienes trazabilidad completa de las extracciones realizadas."
+        "y mantienes trazabilidad completa de las extracciones realizadas. "
+        "Tienes acceso a un sistema RAG que te permite buscar información específica en documentos indexados."
     ),
+    tools=[rag_tool],
     llm=get_configured_llm(),
     verbose=True,
     allow_delegation=False
@@ -74,6 +162,8 @@ agente_productos = Agent(
         "distinguir 'Acumulado vs por período', manejar 'IFS, anexo' e 'idiomas y formatos'. "
         "Usar patrones flexibles y sinónimos para identificar cada campo, asignar niveles de confianza "
         "(EXTRAIDO_DIRECTO|EXTRAIDO_INFERIDO|NO_EXTRAIDO), y registrar 'Observación' si cambian valores entre versiones. "
+        "IMPORTANTE: Usa la herramienta rag_search para buscar información específica en los documentos indexados. "
+        "Busca términos como 'productos', 'metas', 'indicadores', 'matriz lógica', 'componentes', 'ROP', 'INI', 'DEC', etc. "
         "Para CADA producto identificado, extrae con búsqueda flexible: Código CFA (campo separado, portada/primeras páginas, marcos lógicos, carátulas de ROP/INI/DEC/IFS, "
         "variaciones: 'Código de operación CFA', 'Op. CFA', 'Operación CFA'), "
         "código CFX (campo SEPARADO del CFA, cerca de referencias financieras/administrativas, variaciones: 'Código CFX', 'Op. CFX', 'Operación CFX'), "
@@ -101,8 +191,10 @@ agente_productos = Agent(
         "fechas de cumplimiento, tipo de dato (pendiente/proyectado/realizado) y características "
         "(administración, capacitación, equipamiento y mobiliario, fortalecimiento institucional, infraestructura), "
         "usando sinónimos y variaciones para identificar información, asignando niveles de confianza apropiados, "
-        "respetando prioridades documentales y calculando retrasos con trazabilidad completa."
+        "respetando prioridades documentales y calculando retrasos con trazabilidad completa. "
+        "Tienes acceso a un sistema RAG que te permite buscar información específica en documentos indexados."
     ),
+    tools=[rag_tool],
     llm=get_configured_llm(),
     verbose=True,
     allow_delegation=False
@@ -115,6 +207,8 @@ agente_desembolsos = Agent(
         "si no están disponibles, buscar en DEC. Priorizar documentos ROP > INI > DEC. Usar patrones flexibles y sinónimos para identificar cada campo, "
         "asignar niveles de confianza (EXTRAIDO_DIRECTO|EXTRAIDO_INFERIDO|NO_EXTRAIDO), "
         "y registrar 'Observación' si cambian valores entre versiones. "
+        "IMPORTANTE: Usa la herramienta rag_search para buscar información específica en los documentos indexados. "
+        "Busca términos como 'desembolsos', 'cronograma', 'CAF', 'montos', 'fechas', 'ROP', 'INI', 'DEC', etc. "
         "Buscar cronogramas/programaciones (proyectados) prioritariamente en ROP/INI, y estados/detalles (realizados) en cualquier documento. "
         "Extraer con búsqueda flexible: Código de operación (CFX) (portada/primeras páginas, secciones administrativas, "
         "variaciones: 'Código CFX', 'Op. CFX', 'Operación CFX'), "
@@ -138,8 +232,10 @@ agente_desembolsos = Agent(
         "Extraes información relacionada a desembolsos en tablas de cronogramas o estados financieros, "
         "capturas montos, monedas y fechas exactas usando sinónimos y variaciones para identificar información, "
         "asignas niveles de confianza apropiados, etiquetas la fuente con precisión, "
-        "evitas duplicados y manejas versiones con trazabilidad completa."
+        "evitas duplicados y manejas versiones con trazabilidad completa. "
+        "Tienes acceso a un sistema RAG que te permite buscar información específica en documentos indexados."
     ),
+    tools=[rag_tool],
     llm=get_configured_llm(),
     verbose=True,
     allow_delegation=False
@@ -151,6 +247,7 @@ agente_experto_auditorias = Agent(
     goal=(
         "Normalizar 'Estado del informe', 'Si se entregó informe de auditoría externo' y 'Concepto ...' a categorías controladas; "
         "emitir 'concepto_final' y 'concepto_rationale' basado en lenguaje específico del auditor. No alterar los campos base. "
+        "IMPORTANTE: Usa la herramienta rag_search para verificar información específica en los documentos indexados cuando sea necesario. "
         "Debes: Analizar la salida JSONL del Agente de Auditorías; Normalizar campos (Estado del informe → estado_informe_norm {dispensado, normal, satisfecho, vencido} o null; "
         "Si se entregó informe de auditoría externo → informe_externo_entregado_norm {a tiempo, dispensado, vencido} o null; "
         "Conceptos → *_norm {Favorable, Favorable con reservas, Desfavorable, no se menciona}); "
@@ -165,8 +262,10 @@ agente_experto_auditorias = Agent(
     ),
     backstory=(
         "Auditor senior. Tomas los registros base de Auditorías, los enriqueces con etiquetas normalizadas "
-        "y un concepto final justificado basado en evidencia específica."
+        "y un concepto final justificado basado en evidencia específica. "
+        "Tienes acceso a un sistema RAG para verificar información cuando sea necesario."
     ),
+    tools=[rag_tool],
     llm=get_configured_llm(),
     verbose=True,
     allow_delegation=False
@@ -178,6 +277,7 @@ agente_experto_productos = Agent(
         "Normalizar 'tipo_dato', 'caracteristica' y 'meta_unidad' aplicando casos especiales: distinguir 'Acumulado vs por período', "
         "manejar 'IFS en Excel anexo', considerar 'idiomas y formatos diversos', validar 'sección correcta (producto vs resultado)'. "
         "Separar meta numérica cuando sea inequívoco y emitir 'concepto_final' y 'concepto_rationale' por producto. No inventar: deja null si no es claro. "
+        "IMPORTANTE: Usa la herramienta rag_search para verificar información específica en los documentos indexados cuando sea necesario. "
         "Debes: Analizar salida JSONL del Agente de Productos; Normalizar (tipo_dato_norm {pendiente, proyectado, realizado} o null; "
         "caracteristica_norm {administracion, capacitacion, equipamiento y mobiliario, fortalecimiento institucional, infraestructura} o null; "
         "meta_num (número puro si inequívoco, distinguiendo acumulado vs por período); meta_unidad_norm (lista controlada de unidades o null)); "
@@ -188,8 +288,10 @@ agente_experto_productos = Agent(
     ),
     backstory=(
         "Clasificador de indicadores. Tomas los datos de productos, normalizas los campos y determinas un concepto final "
-        "según metas, evidencias y reglas específicas."
+        "según metas, evidencias y reglas específicas. "
+        "Tienes acceso a un sistema RAG para verificar información cuando sea necesario."
     ),
+    tools=[rag_tool],
     llm=get_configured_llm(),
     verbose=True,
     allow_delegation=False
@@ -199,16 +301,19 @@ agente_experto_desembolsos = Agent(
     role="Clasificador de Desembolsos",
     goal=(
         "Emitir 'concepto_final' y 'concepto_rationale' para Desembolsos (y opcionalmente normalizar etiquetas de fuente). "
+        "IMPORTANTE: Usa la herramienta rag_search para verificar información específica en los documentos indexados cuando sea necesario. "
         "Debes: Analizar salida JSONL del Agente de Desembolsos; Evaluar calidad y completitud; "
         "Asignar concepto_final {Favorable, Favorable con reservas, Desfavorable} (Favorable: completos y coherentes; "
         "con reservas: inconsistencias menores; Desfavorable: faltantes graves); "
         "Proporcionar concepto_rationale (1–2 frases citando evidencia). REGLAS: No alteres campos base; "
-        "Mantén “Observación” sin cambios. Validar con validate_desembolso_expert_record."
+        "Mantén 'Observación' sin cambios. Validar con validate_desembolso_expert_record."
     ),
     backstory=(
         "Especialista financiero senior. Evalúas los desembolsos revisando consistencia en fechas, montos, monedas y fuentes, "
-        "asignando un concepto claro y justificado."
+        "asignando un concepto claro y justificado. "
+        "Tienes acceso a un sistema RAG para verificar información cuando sea necesario."
     ),
+    tools=[rag_tool],
     llm=get_configured_llm(),
     verbose=True,
     allow_delegation=False

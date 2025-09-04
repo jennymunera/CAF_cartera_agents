@@ -1,0 +1,76 @@
+{
+  "embeddings": {
+    "model_name": "sentence-transformers/all-MiniLM-L6-v2",
+    "normalize": true,
+    "use_sparse": false,
+    "use_multivector": "false",
+    "max_length": 512,
+    "batch_size": 32,
+    "device": "cpu",
+    "dense_dim": 384,
+    "sparse_dim": 0
+  },
+  "chromadb": {
+    "persist_directory": "C:\\Users\\jkgv1\\Desktop\\Agentes Jen\\Agentes Jen\\rag_vectorstore",
+    "collection_name": "rag_documents",
+    "use_http_client": true,
+    "host": "localhost",
+    "port": 8000,
+    "hnsw_m": 64,
+    "hnsw_ef_search": 128,
+    "hnsw_ef_construction": 200,
+    "distance_metric": "cosine",
+    "batch_size": 1000
+  },
+  "chunking": {
+    "target_tokens": 512,
+    "min_tokens": 100,
+    "max_tokens": 1200,
+    "overlap_tokens": 50,
+    "respect_sections": true,
+    "respect_paragraphs": true,
+    "respect_sentences": true,
+    "detect_language": true,
+    "default_language": "es"
+  },
+  "retrieval": {
+    "k_dense": 10,
+    "k_sparse": 10,
+    "k_final": 5,
+    "fusion_method": "rrf",
+    "rrf_k": 60,
+    "dense_weight": 0.7,
+    "sparse_weight": 0.3,
+    "enable_metadata_filters": true
+  },
+  "reranking": {
+    "model_name": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    "batch_size": 16,
+    "max_length": 512,
+    "device": "auto",
+    "top_k_candidates": 100
+  },
+  "azure_di": {
+    "endpoint": "https://docintel-cartera-cr.cognitiveservices.azure.com/",
+    "model_id": "prebuilt-layout",
+    "extract_tables": true,
+    "extract_key_value_pairs": true,
+    "extract_paragraphs": true,
+    "extract_sections": true,
+    "detect_language": true
+  },
+  "evaluation": {
+    "enable_groundedness_check": true,
+    "groundedness_threshold": 0.7,
+    "enable_metrics": true,
+    "metrics_log_file": "rag_metrics.jsonl",
+    "eval_dataset_path": null,
+    "log_level": "INFO",
+    "log_file": "rag_system.log"
+  },
+  "project_name": "CrewAI_RAG_System",
+  "version": "1.0.0",
+  "base_dir": "C:\\Users\\jkgv1\\Desktop\\Agentes Jen\\Agentes Jen",
+  "input_dir": "C:\\Users\\jkgv1\\Desktop\\Agentes Jen\\Agentes Jen\\input_docs",
+  "output_dir": "C:\\Users\\jkgv1\\Desktop\\Agentes Jen\\Agentes Jen\\output_docs"
+}

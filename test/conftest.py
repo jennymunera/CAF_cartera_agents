@@ -9,7 +9,7 @@ import sys
 # Add the parent directory to the path so we can import our modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from document_intelligence_processor import DocumentIntelligenceProcessor
+from rag.document_processor import AzureDocumentProcessor
 from config.settings import settings
 from agents.agents import (
     agente_auditorias,

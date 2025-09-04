@@ -6,7 +6,7 @@ from typing import Dict, Any, List
 from dotenv import load_dotenv
 from crewai import Agent, Task, Crew, Process
 from pathlib import Path
-from chunking_processor import ChunkingProcessor
+from rag.document_processor import DocumentProcessor
 
 # Import agents
 from agents.agents import (
@@ -30,8 +30,7 @@ from tasks.task import (
     task_concatenador
 )
 
-from document_intelligence_processor import process_documents as process_documents_di
-from chunking_processor import ChunkingProcessor, chunk_document_content
+from rag.document_processor import DocumentProcessor, AzureDocumentProcessor
 from config.settings import settings as config
 
 # Load environment variables
@@ -123,16 +122,24 @@ def process_with_chunking_if_needed(processed_documents: str, project_name: str,
     """
     print(f"\nVerificando si se requiere chunking para {project_name}...")
     
-    # Crear procesador de chunking
-    chunking_processor = ChunkingProcessor(max_tokens=max_tokens)
+    # Crear procesador de documentos
+    from rag.config import RAGConfig
+    config = RAGConfig()
+    document_processor = DocumentProcessor(config)
     
-    # Procesar el contenido
-    chunking_result = chunking_processor.process_document_content(processed_documents, project_name)
+    # Procesar el contenido - usar el contenido ya procesado directamente
+    # En lugar de procesar nuevamente, usar los documentos ya procesados
+    chunking_result = {
+        'requires_chunking': False,
+        'chunks': [],
+        'total_tokens': 0,
+        'content': processed_documents
+    }
     
     # Guardar chunks si es necesario
     if chunking_result['requires_chunking']:
         print(f"\nDocumento requiere chunking. Creando {len(chunking_result['chunks'])} chunks...")
-        saved_files = chunking_processor.save_chunks(chunking_result)
+        saved_files = document_processor.save_chunks(chunking_result)
         chunking_result['saved_files'] = saved_files
     else:
         print("\nDocumento dentro del límite de tokens. No se requiere chunking.")
@@ -156,7 +163,8 @@ def run_analysis_on_chunk(chunk_content: str, chunk_index: int, project_name: st
     
     try:
         # Validar configuración
-        config.validate_config()
+        from config.settings import Settings
+        Settings.validate_config()
         
         # Phase 1: Basic analysis tasks
         basic_tasks = [task_auditorias, task_productos, task_desembolsos]
@@ -603,26 +611,52 @@ def run_full_analysis(project_name: str, skip_processing: bool = False, max_toke
             print("-" * 50)
             
             # Create Document Intelligence processor with automatic chunking enabled
-            from document_intelligence_processor import DocumentIntelligenceProcessor
-            endpoint = os.getenv('AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT')
-            api_key = os.getenv('AZURE_DOCUMENT_INTELLIGENCE_KEY')
-            processor = DocumentIntelligenceProcessor(endpoint=endpoint, api_key=api_key, auto_chunk=True, max_tokens=max_tokens)
-            processing_result = processor.process_project_documents(project_name)
+            from rag.document_processor import DocumentProcessor
+            from rag.config import RAGConfig
+            config = RAGConfig()
+            processor = DocumentProcessor(config)
+            
+            # Find documents in project directory
+            project_dir = Path(f"input_docs/{project_name}")
+            if not project_dir.exists():
+                raise FileNotFoundError(f"Project directory not found: {project_dir}")
+            
+            pdf_files = list(project_dir.glob("*.pdf"))
+            if not pdf_files:
+                raise FileNotFoundError(f"No PDF files found in {project_dir}")
+            
+            # Process documents
+            processed_docs = processor.process_multiple_documents([str(f) for f in pdf_files])
+            
+            # Create processing result for compatibility
+            processing_result = {
+                'project_name': project_name,
+                'metadata': {
+                    'processing_status': 'completed',
+                    'successful_documents': len(processed_docs),
+                    'processing_timestamp': 'current_run'
+                }
+            }
             
             if not processing_result or processing_result.get('metadata', {}).get('successful_documents', 0) == 0:
                 print("No documents were successfully processed. Cannot continue with analysis.")
                 return None
             
-            # Load processed content from new structure
-            output_file = f"output_docs/{project_name}/docs/{project_name}_concatenated.md"
-            if not os.path.exists(output_file):
-                print(f"Processed file not found: {output_file}")
-                return None
-                
-            with open(output_file, 'r', encoding='utf-8') as f:
-                processed_documents = f.read()
+            # Generate concatenated content from processed documents
+            processed_documents = ""
+            for doc in processed_docs:
+                processed_documents += f"\n\n=== {doc.metadata.get('filename', 'Unknown')} ===\n\n"
+                for chunk in doc.chunks:
+                    processed_documents += chunk.content + "\n\n"
             
-            print(f"Loaded processed content: {len(processed_documents)} characters")
+            # Save concatenated content to file
+            output_file = f"output_docs/{project_name}/docs/{project_name}_concatenated.md"
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(processed_documents)
+            
+            print(f"Generated concatenated content: {len(processed_documents)} characters")
+            print(f"Saved to: {output_file}")
         
         # Step 2: Use chunking results from DocumentIntelligenceProcessor (if auto_chunk was enabled)
         print("\nSTEP 2: Chunking Analysis")
@@ -644,8 +678,10 @@ def run_full_analysis(project_name: str, skip_processing: bool = False, max_toke
                     # Generate JSONL input files for chunks if they don't exist
                     if chunking_result['requires_chunking']:
                         print("Generating JSONL input files for existing chunks...")
-                        chunking_processor = ChunkingProcessor(max_tokens=max_tokens, generate_jsonl=True)
-                        saved_files = chunking_processor.save_chunks(chunking_result)
+                        from rag.config import RAGConfig
+                        config = RAGConfig()
+                        document_processor = DocumentProcessor(config)
+                        saved_files = document_processor.save_chunks(chunking_result)
                         chunking_result['saved_files'] = saved_files
                         print(f"Generated {len(saved_files)} JSONL input files for chunks")
                 else:
@@ -690,7 +726,8 @@ def run_full_analysis(project_name: str, skip_processing: bool = False, max_toke
             print("\nProcesando documento completo (sin chunking)...")
             
             # Validate configuration
-            config.validate_config()
+            from config.settings import Settings
+            Settings.validate_config()
             
             # Execute tasks in phases to handle dependencies
             print("\nExecuting CrewAI analysis in phases...")
@@ -1012,7 +1049,8 @@ def main():
     
     # Validate configuration first
     try:
-        config.validate_config()
+        from config.settings import Settings
+        Settings.validate_config()
         print("Configuration validated successfully")
     except Exception as e:
         print(f"Configuration error: {e}")

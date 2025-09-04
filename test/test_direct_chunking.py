@@ -10,7 +10,7 @@ from pathlib import Path
 # Add the project root to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from chunking_processor import ChunkingProcessor
+from rag.document_processor import DocumentProcessor
 
 def test_direct_chunking():
     """Prueba directa del chunkeo usando contenido existente."""
@@ -33,18 +33,20 @@ def test_direct_chunking():
     
     print(f"Contenido leido: {len(content)} caracteres")
     
-    # Crear procesador de chunkeo con limite bajo
-    print(f"\nCreando ChunkingProcessor con max_tokens=10000...")
-    chunking_processor = ChunkingProcessor(max_tokens=10000)
+    # Crear procesador de documentos
+    print(f"\nCreando DocumentProcessor...")
+    from rag.config import RAGConfig
+    config = RAGConfig()
+    document_processor = DocumentProcessor(config)
     
     # Procesar contenido
     print(f"Procesando contenido para chunkeo...")
-    chunking_result = chunking_processor.process_document_content(content, project_name)
+    chunking_result = document_processor.process_document_content(content, project_name)
     
     print(f"\nResultado del chunkeo:")
     print(f"  - Requiere chunkeo: {chunking_result['requires_chunking']}")
     print(f"  - Tokens totales: {chunking_result['total_tokens']}")
-    print(f"  - Limite configurado: 10000 tokens")
+    print(f"  - Limite configurado: {config.max_tokens} tokens")
     
     if chunking_result['requires_chunking']:
         print(f"  - Numero de chunks: {len(chunking_result['chunks'])}")
@@ -52,7 +54,7 @@ def test_direct_chunking():
         
         # Guardar chunks
         print(f"\nGuardando chunks...")
-        saved_files = chunking_processor.save_chunks(chunking_result, "output_docs")
+        saved_files = document_processor.save_chunks(chunking_result, "output_docs")
         
         print(f"Archivos guardados:")
         for file in saved_files:

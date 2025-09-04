@@ -1,0 +1,31 @@
+[2025-09-03 21:32:21] INFO: Starting RAG System Setup
+[2025-09-03 21:32:21] INFO: ==================================================
+[2025-09-03 21:32:21] INFO: Checking Python version...
+[2025-09-03 21:32:21] INFO: Python 3.10.9 | packaged by Anaconda, Inc. | (main, Mar  1 2023, 18:18:15) [MSC v.1916 64 bit (AMD64)] - OK
+[2025-09-03 21:32:21] INFO: Installing dependencies...
+[2025-09-03 21:32:24] INFO: Dependencies installed successfully
+[2025-09-03 21:32:24] INFO: Creating RAG configuration...
+[2025-09-03 21:32:24] INFO: Configuration saved to C:\Users\jkgv1\Desktop\Agentes Jen\Agentes Jen\rag_config.json
+[2025-09-03 21:32:24] INFO: Setting up environment variables...
+[2025-09-03 21:32:24] INFO: .env file already exists
+[2025-09-03 21:32:24] INFO: Skipping vector database initialization due to onnxruntime issues...
+[2025-09-03 21:32:24] INFO: Vector database will be initialized when first used.
+[2025-09-03 21:32:24] INFO: Creating sample documents...
+[2025-09-03 21:32:24] INFO: Sample documents created in C:\Users\jkgv1\Desktop\Agentes Jen\Agentes Jen\sample_documents
+[2025-09-03 21:32:24] INFO: Running health checks...
+[2025-09-03 21:32:24] INFO: ✓ Configuration is valid
+[2025-09-03 21:32:24] INFO: ✓ All required directories exist
+[2025-09-03 21:32:24] INFO: ✓ Vector store check skipped (will be checked when first used)
+[2025-09-03 21:32:24] INFO: ✓ Embeddings model check skipped (will be checked when first used)
+[2025-09-03 21:32:24] INFO: ==================================================
+[2025-09-03 21:32:24] INFO: Setup Summary:
+[2025-09-03 21:32:24] INFO:   config_valid: ✓ PASS
+[2025-09-03 21:32:24] INFO:   directories_exist: ✓ PASS
+[2025-09-03 21:32:24] INFO:   vector_store_accessible: ✓ PASS
+[2025-09-03 21:32:24] INFO:   embeddings_model_loadable: ✓ PASS
+[2025-09-03 21:32:24] INFO: Health checks: 4/4 passed
+[2025-09-03 21:32:24] SUCCESS: RAG System setup completed successfully!
+[2025-09-03 21:32:24] INFO: Next steps:
+[2025-09-03 21:32:24] INFO: 1. Update .env file with your Azure credentials
+[2025-09-03 21:32:24] INFO: 2. Run: python -m pytest test/test_rag_system.py
+[2025-09-03 21:32:24] INFO: 3. Index sample documents: python index_documents.py

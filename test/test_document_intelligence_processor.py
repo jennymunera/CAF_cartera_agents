@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 import json
 
-from document_intelligence_processor import DocumentIntelligenceProcessor, process_documents
+from rag.document_processor import AzureDocumentProcessor, DocumentProcessor
 
 
 class TestDocumentIntelligenceProcessor:
@@ -14,7 +14,7 @@ class TestDocumentIntelligenceProcessor:
     @pytest.mark.unit
     def test_init(self):
         """Test DocumentIntelligenceProcessor initialization."""
-        with patch('document_intelligence_processor.DocumentIntelligenceClient'):
+        with patch('rag.document_processor.DocumentIntelligenceClient'):
             processor = DocumentIntelligenceProcessor(
                 endpoint="https://test.cognitiveservices.azure.com/",
                 api_key="test_key"
@@ -24,7 +24,7 @@ class TestDocumentIntelligenceProcessor:
             assert hasattr(processor, 'process_project_documents')
     
     @pytest.mark.unit
-    @patch('document_intelligence_processor.DocumentIntelligenceClient')
+    @patch('rag.document_processor.DocumentIntelligenceClient')
     def test_process_single_document_success(self, mock_client_class):
         """Test successful document processing."""
         # Setup mock client
@@ -65,7 +65,7 @@ class TestDocumentIntelligenceProcessor:
             temp_path.unlink()
     
     @pytest.mark.unit
-    @patch('document_intelligence_processor.DocumentIntelligenceClient')
+    @patch('rag.document_processor.DocumentIntelligenceClient')
     def test_process_single_document_failure(self, mock_client_class):
         """Test handling of document processing failure."""
         # Setup mock to raise exception
@@ -96,7 +96,7 @@ class TestDocumentIntelligenceProcessor:
             temp_path.unlink()
     
     @pytest.mark.unit
-    @patch('document_intelligence_processor.DocumentIntelligenceClient')
+    @patch('rag.document_processor.DocumentIntelligenceClient')
     def test_process_single_document_nonexistent_file(self, mock_client_class):
         """Test handling of nonexistent file."""
         mock_client = Mock()
@@ -119,7 +119,7 @@ class TestDocumentIntelligenceProcessor:
         assert result['filename'] == 'file.pdf'
     
     @pytest.mark.unit
-    @patch('document_intelligence_processor.DocumentIntelligenceProcessor.process_single_document')
+    @patch('rag.document_processor.AzureDocumentProcessor.process_single_document')
     def test_process_project_documents_success(self, mock_process_single, sample_project_structure):
         """Test successful processing of project documents."""
         # Setup mock
@@ -130,7 +130,7 @@ class TestDocumentIntelligenceProcessor:
             'metadata': {'processing_status': 'success'}
         }
         
-        with patch('document_intelligence_processor.DocumentIntelligenceClient'):
+        with patch('rag.document_processor.DocumentIntelligenceClient'):
             processor = DocumentIntelligenceProcessor(
                 endpoint="https://test.cognitiveservices.azure.com/",
                 api_key="test_key",
@@ -148,7 +148,7 @@ class TestDocumentIntelligenceProcessor:
             assert result['metadata']['processing_status'] == 'completed'
     
     @pytest.mark.unit
-    @patch('document_intelligence_processor.DocumentIntelligenceClient')
+    @patch('rag.document_processor.DocumentIntelligenceClient')
     def test_process_project_documents_nonexistent_project(self, mock_client_class):
         """Test handling of nonexistent project."""
         mock_client = Mock()
@@ -166,7 +166,7 @@ class TestDocumentIntelligenceProcessor:
         assert result['metadata']['total_documents'] == 0
     
     @pytest.mark.unit
-    @patch('document_intelligence_processor.DocumentIntelligenceProcessor.process_single_document')
+    @patch('rag.document_processor.AzureDocumentProcessor.process_single_document')
     def test_process_project_documents_mixed_results(self, mock_process_single, sample_project_structure):
         """Test processing with mixed success/failure results."""
         # Setup mock to return alternating success/failure
@@ -185,7 +185,7 @@ class TestDocumentIntelligenceProcessor:
             }
         ]
         
-        with patch('document_intelligence_processor.DocumentIntelligenceClient'):
+        with patch('rag.document_processor.DocumentIntelligenceClient'):
             processor = DocumentIntelligenceProcessor(
                 endpoint="https://test.cognitiveservices.azure.com/",
                 api_key="test_key",
@@ -204,7 +204,7 @@ class TestProcessDocumentsFunction:
     """Test cases for the process_documents function."""
     
     @pytest.mark.unit
-    @patch('document_intelligence_processor.list_available_projects')
+    @patch('rag.document_processor.list_available_projects')
     def test_process_documents_list_projects(self, mock_list_projects):
         """Test listing available projects."""
         mock_list_projects.return_value = ['project1', 'project2']
@@ -215,7 +215,7 @@ class TestProcessDocumentsFunction:
         assert result['available_projects'] == ['project1', 'project2']
     
     @pytest.mark.unit
-    @patch('document_intelligence_processor.DocumentIntelligenceProcessor')
+    @patch('rag.document_processor.AzureDocumentProcessor')
     def test_process_documents_with_project(self, mock_processor_class):
         """Test processing a specific project."""
         mock_processor = Mock()
