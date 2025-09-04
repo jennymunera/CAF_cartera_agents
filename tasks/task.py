@@ -12,7 +12,7 @@ from agents.agents import (
 # Tarea para Agente de Auditorías
 task_auditorias = Task(
     description="""
-      Eres un analista especializado en auditorías con enfoque en extracción precisa y trazable. Busca de manera sistemática y flexible los siguientes campos::
+      Eres un analista especializado en auditorías con enfoque en extracción precisa y trazable. PRIORIZA INFORMES IXP. Busca de manera sistemática y flexible los siguientes campos:
 
       - Código CFA: buscar en múltiples ubicaciones con sinónimos. Ubicaciones: portada, primeras páginas, marcos lógicos, carátulas. Variaciones: "CFA", "Código CFA", "Código de operación", "Op. CFA", "Operación CFA", "No. CFA", "CFX".
       
@@ -20,13 +20,13 @@ task_auditorias = Task(
       
       - Si se entregó informe de auditoría externo: buscar menciones explícitas. Patrones: "entrega de informe", "recepción de auditoría", "informe externo", "auditoría externa", "entregado", "recibido", "presentado".
       
-      - Concepto Control interno: buscar en secciones específicas con sinónimos. Secciones válidas: "Opinión", "Opinión sin reserva", "Opinión sin salvedades", "Dictamen", "Conclusión de auditoría", "Conclusiones", "Resultados". Patrones: "control interno", "controles internos", "sistema de control", "deficiencias de control", "suficiencia del control".
+      - Concepto Control interno: buscar en secciones de Opinión/Dictamen/Conclusión con sinónimos. Secciones válidas: "Opinión", "Opinión sin reserva", "Opinión sin salvedades", "Dictamen", "Conclusión de auditoría", "Conclusiones", "Resultados". Patrones: "control interno", "controles internos", "sistema de control", "deficiencias de control", "suficiencia del control".
       
-      - Concepto licitación de proyecto: buscar en secciones de opinión con variaciones. Patrones: "licitación", "licitações", "adquisiciones", "contrataciones", "compra pública", "procurement", "contratação", "aquisições".
+      - Concepto licitación de proyecto: buscar en secciones de Opinión/Dictamen/Conclusión con variaciones. Patrones: "licitación", "licitações", "adquisiciones", "contrataciones", "compra pública", "procurement", "contratação", "aquisições".
       
-      - Concepto uso de recursos financieros según lo planificado: buscar conformidad en uso de recursos. Patrones: "uso de recursos", "utilización de fondos", "aplicación de recursos", "destino de recursos", "conformidad", "desvíos", "según planificado".
+      - Concepto uso de recursos financieros según lo planificado: buscar en secciones de Opinión/Dictamen/Conclusión conformidad en uso de recursos. Patrones: "uso de recursos", "utilización de fondos", "aplicación de recursos", "destino de recursos", "conformidad", "desvíos", "según planificado".
       
-      - Concepto sobre unidad ejecutora: evaluar desempeño de la UGP. Patrones: "unidad ejecutora", "UGP", "gestión del proyecto", "desempeño", "capacidad de ejecución", "administración del proyecto".
+      - Concepto sobre unidad ejecutora: buscar en secciones de Opinión/Dictamen/Conclusión evaluación del desempeño de la UGP. Patrones: "unidad ejecutora", "UGP", "gestión del proyecto", "desempeño", "capacidad de ejecución", "administración del proyecto".
       
       - Fecha de vencimiento: buscar en tablas de control con formatos flexibles. Ubicaciones: tablas de seguimiento, cronogramas, calendarios. Formatos: DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD, "Enero 2023", "Q1 2023".
       
@@ -42,7 +42,7 @@ task_auditorias = Task(
       
       - Nombre del archivo revisado: registrar el documento específico del cual proviene la información final.
       
-      - texto justificación: extraer cita breve de 1-2 frases de Opinión/Dictamen que sustente el concepto.
+      - texto justificación: extraer cita breve de 1-2 frases de secciones Opinión/Dictamen/Conclusión que sustente el concepto.
       
       - Observación: describir cambios entre versiones con formato específico (campo: valor_anterior → valor_nuevo; documento_origen → documento_nuevo).
 
@@ -101,7 +101,7 @@ task_productos = Task(
       - meta del producto / meta unidad: separar claramente valor numérico y unidad. Patrones de reconocimiento:
         • Formatos típicos: "230 km", "1,500 personas", "50 unidades", "100%", "25 talleres"
         • Separación: "230 km" → meta del producto="230", meta unidad="km"
-        • Unidades comunes: km, personas, unidades, talleres, capacitaciones, %, hectáreas, viviendas
+        • Unidades comunes: km, personas, unidades, talleres, capacitaciones, %, hectáreas, viviendas, Galones, KVA
         • Si no es inequívoco o hay ambigüedad: "NO EXTRAIDO"
       
       - fuente del indicador: identificar origen de la información. Ubicaciones: columnas "Fuente", notas al pie, referencias. Fuentes típicas: "Informe Semestral", "DEC", "SSC", "INI", "ROP", "Reporte de avance", "Monitoreo".
@@ -146,7 +146,7 @@ task_productos = Task(
       - Identificar componentes y subcomponentes del proyecto
       - Distinguir entre metas físicas y financieras
       - Considerar diferentes períodos de reporte y versiones de documentos
-      - Buscar información complementaria en gráficos y cuadros
+      - Buscar información complementaria en gráficos y tablas
 
       PATRONES DE RECONOCIMIENTO PARA METAS:
       - Números con unidades explícitas: "500 personas", "25 km", "100%"
@@ -156,7 +156,9 @@ task_productos = Task(
       - Rangos y aproximaciones: "entre 200-300", "aproximadamente 150"
 
       REGLAS:
-      - Prioridad documental: ROP > INI > DEC > IFS.
+      - Prioridad documental: ROP > INI > DEC para metas de productos; si no existen, buscar en IFS o anexo Excel.
+      - Validar sección correcta: distinguir entre productos (outputs) y resultados (outcomes).
+      - Casos especiales: distinguir acumulado vs por período, manejar IFS en Excel anexo, considerar idiomas/formatos diversos.
       - Una fila por cada producto identificado.
       - Nunca inventar datos: si no hay evidencia clara, "NO EXTRAIDO|NO_EXTRAIDO".
       - Mantener nombres de campo exactamente como se solicitan.
@@ -221,7 +223,7 @@ task_desembolsos = Task(
 
       - Código de operación (CFX): buscar en múltiples ubicaciones. Ubicaciones: portada, primeras páginas, secciones administrativas, encabezados, pies de página. Variaciones: "CFX", "Código CFX", "Código de operación", "Op. CFX", "Operación CFX", "No. CFX", "Número de operación".
       
-      - fecha de desembolso por parte de CAF: usar patrones flexibles para diferentes formatos de fecha. Ubicaciones y tipos:
+      - fecha de desembolso por parte de CAF: BUSCAR CRONOGRAMAS PRIMERO en Manual Operativo (ROP) o Informe Inicial (INI); si no están disponibles, revisar DEC. Usar patrones flexibles para diferentes formatos de fecha. Ubicaciones y tipos:
         • Realizados: tablas "Detalle de desembolsos", "Estado de desembolsos", "Desembolsos efectuados", "Desembolsos realizados", "Pagos ejecutados", "Transferencias realizadas"
         • Proyectados: "Cronograma de desembolsos", "Programación de desembolsos", "Calendario de desembolsos", "Flujo de caja", "Proyección financiera", "Plan de desembolsos"
         • Formatos de fecha: DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD, DD-MM-YYYY, "Enero 2023", "Q1 2023", "Trimestre 1", "Semestre 2"
@@ -271,7 +273,7 @@ task_desembolsos = Task(
       - Identificar desembolsos parciales y totales
       - Distinguir entre montos programados y ejecutados
       - Considerar diferentes períodos de reporte (mensual, trimestral, anual)
-      - Buscar información en gráficos y cuadros financieros
+      - Buscar información en gráficos y tablas financieras
 
       PATRONES DE RECONOCIMIENTO PARA MONTOS:
       - Números con separadores: comas, puntos, espacios
@@ -283,6 +285,9 @@ task_desembolsos = Task(
       REGLAS:
       - Prioridad documental: ROP > INI > DEC.
       - Evitar duplicados: no repetir registros del mismo período, moneda y evento.
+      - PRIORIZAR MONEDA ORIGINAL: conservar USD solo si no aparece la moneda original.
+      - NO REPETIR mismo período+moneda: evitar duplicados en registros.
+      - Usar etiquetas específicas de fuentes: "ROP_cronograma", "INI_programacion", "DEC_ejecutado".
       - No convertir moneda ni inferir fechas/moneda si no es claro; usar "NO EXTRAIDO|NO_EXTRAIDO".
       - Mantener formato original de montos y fechas.
       - Para fechas ambiguas, priorizar extracción literal sobre interpretación.
@@ -329,8 +334,12 @@ task_experto_auditorias = Task(
         cada uno ∈ {Favorable, Favorable con reservas, Desfavorable, no se menciona}. Usa exclusivamente evidencia de secciones de Opinión/Dictamen/Conclusión.
 
       REGLAS DE CONCEPTO FINAL:
-      - concepto_final: ∈ {Favorable, Favorable con reservas, Desfavorable}. Basa tu decisión en los normalizados y en el “texto justificación”.
-      - concepto_rationale: 1–2 frases que sinteticen la evidencia.
+      - concepto_final: ∈ {Favorable, Favorable con reservas, Desfavorable}. Usar criterios específicos:
+        • Favorable: lenguaje positivo ("satisfactorio", "adecuado", "cumple", "sin observaciones")
+        • Favorable con reservas: lenguaje mixto ("con salvedades", "excepto por", "sujeto a", "con limitaciones")
+        • Desfavorable: lenguaje crítico ("deficiente", "inadecuado", "no cumple", "graves deficiencias")
+      - Basar decisión en evidencia de secciones Opinión/Dictamen/Conclusión y "texto justificación".
+      - concepto_rationale: 1–2 frases que sinteticen la evidencia usando terminología específica del auditor.
 
       REGLAS GENERALES:
       - No modifiques los campos base. Si no hay evidencia, deja null en los normalizados.
@@ -386,8 +395,12 @@ task_experto_productos = Task(
         Galones por día, Miles de galones por día, kilómetros / hora, toneladas, cantidad / año, metros cúbicos / segundo, miles de metros al cuadrado} o null.
 
       REGLAS DE CONCEPTO FINAL:
-      - concepto_final: ∈ {Favorable, Favorable con reservas, Desfavorable}. Basa tu decisión en la coherencia de metas, fechas y “Retraso”.
-      - concepto_rationale: 1–2 frases con la evidencia clave.
+      - concepto_final: ∈ {Favorable, Favorable con reservas, Desfavorable}. Evaluar usando jerarquía documental para calidad:
+        • ROP > INI > DEC > IFS/Excel anexo
+        • Considerar casos especiales: acumulado vs por período, IFS en Excel, idiomas/formatos diversos
+        • Validar sección correcta (producto vs resultado)
+      - Basar decisión en coherencia de metas, fechas, "Retraso" y calidad de fuente documental.
+      - concepto_rationale: 1–2 frases con la evidencia clave y fuente documental.
 
       REGLAS GENERALES:
       - No inventes: si no hay evidencia inequívoca, deja null en normalizados.
@@ -485,5 +498,5 @@ task_concatenador = Task(
     - Metadatos de procesamiento
     """,
     agent=agente_concatenador,
-    output_file="output_docs/{project_name}/agents_output/concatenated_results.json"
+    output_file="output_docs/{project_name}/results/concatenated_results.json"
 )

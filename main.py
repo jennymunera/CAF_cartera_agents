@@ -44,22 +44,25 @@ def create_project_folder_structure(project_name: str) -> Dict[str, str]:
         project_name: Name of the project
         
     Returns:
-        Dict with folder paths for docs and agents_output
+        Dict with folder paths for docs, agents_output, and results
     """
     base_output_dir = Path("output_docs")
     project_dir = base_output_dir / project_name
     docs_dir = project_dir / "docs"
     agents_output_dir = project_dir / "agents_output"
+    results_dir = project_dir / "results"
     
     # Create directories
     project_dir.mkdir(parents=True, exist_ok=True)
     docs_dir.mkdir(parents=True, exist_ok=True)
     agents_output_dir.mkdir(parents=True, exist_ok=True)
+    results_dir.mkdir(parents=True, exist_ok=True)
     
     return {
         "project_dir": str(project_dir),
         "docs_dir": str(docs_dir),
-        "agents_output_dir": str(agents_output_dir)
+        "agents_output_dir": str(agents_output_dir),
+        "results_dir": str(results_dir)
     }
 
 def process_project_documents(project_name: str = None):
@@ -360,7 +363,7 @@ def run_analysis_on_chunk(chunk_content: str, chunk_index: int, project_name: st
         }
 
 
-def consolidate_chunk_results(chunk_results: List[Dict[str, Any]], project_name: str, agents_output_dir: str = None) -> str:
+def consolidate_chunk_results(chunk_results: List[Dict[str, Any]], project_name: str, agents_output_dir: str = None, results_dir: str = None) -> str:
     """Consolida los resultados de múltiples chunks en un análisis final.
     
     Args:
@@ -486,10 +489,10 @@ Total de chunks analizados: {len(chunk_results)}
         
         print(f"Consolidados: {auditorias_count} auditorías, {productos_count} productos, {desembolsos_count} desembolsos")
         
-        # Crear archivos JSON de salida
-        auditorias_json = f"{agents_output_dir}/auditorias.json"
-        productos_json = f"{agents_output_dir}/productos.json"
-        desembolsos_json = f"{agents_output_dir}/desembolsos.json"
+        # Crear archivos JSON de salida en carpeta results
+        auditorias_json = f"{results_dir}/auditorias.json"
+        productos_json = f"{results_dir}/productos.json"
+        desembolsos_json = f"{results_dir}/desembolsos.json"
         
         final_result = concat_crew.kickoff(inputs={
             'processed_documents': consolidated_content,
@@ -563,9 +566,11 @@ def run_full_analysis(project_name: str, skip_processing: bool = False, max_toke
     print(f"   Project dir: {folder_structure['project_dir']}")
     print(f"   Docs dir: {folder_structure['docs_dir']}")
     print(f"   Agents output dir: {folder_structure['agents_output_dir']}")
+    print(f"   Results dir: {folder_structure['results_dir']}")
     
-    # Define agents_output_dir for use throughout the function
+    # Define directories for use throughout the function
     agents_output_dir = folder_structure['agents_output_dir']
+    results_dir = folder_structure['results_dir']
     
     try:
         if skip_processing:
@@ -678,7 +683,7 @@ def run_full_analysis(project_name: str, skip_processing: bool = False, max_toke
             
             # Consolidate results from all chunks
             print("\nConsolidando resultados de todos los chunks...")
-            crew_result = consolidate_chunk_results(chunk_results, project_name, agents_output_dir)
+            crew_result = consolidate_chunk_results(chunk_results, project_name, agents_output_dir, results_dir)
             
         else:
             # Process the entire document as before (no chunking needed)
@@ -871,14 +876,19 @@ def run_full_analysis(project_name: str, skip_processing: bool = False, max_toke
             {expert_disbursement_results}
             """
             
+            # Definir rutas de archivos JSON finales en carpeta results
+            auditorias_json = f"{results_dir}/auditorias.json"
+            productos_json = f"{results_dir}/productos.json"
+            desembolsos_json = f"{results_dir}/desembolsos.json"
+            
             crew_result = concat_crew.kickoff(inputs={
                 'auditorias_expert_jsonl': f"{agents_output_dir}/auditorias_expert.jsonl",
                 'productos_expert_jsonl': f"{agents_output_dir}/productos_expert.jsonl",
                 'desembolsos_expert_jsonl': f"{agents_output_dir}/desembolsos_expert.jsonl",
                 'project_name': project_name,
-                'auditorias_json': f"{agents_output_dir}/auditorias.json",
-                'productos_json': f"{agents_output_dir}/productos.json",
-                'desembolsos_json': f"{agents_output_dir}/desembolsos.json"
+                'auditorias_json': auditorias_json,
+                'productos_json': productos_json,
+                'desembolsos_json': desembolsos_json
             })
         
         print("\nAnalysis completed successfully!")
