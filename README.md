@@ -25,7 +25,7 @@ Sistema automatizado para el procesamiento y análisis de documentos de proyecto
 1. **Document Intelligence Processor**: Extrae texto de documentos PDF/DOCX
 2. **Chunking Processor**: Divide documentos grandes en chunks manejables
 3. **OpenAI Processor**: Procesa documentos con 3 prompts especializados
-4. **Main Controller**: Orquesta todo el flujo de procesamiento
+4. **Process and Submit Batch Controller**: Orquesta todo el flujo de procesamiento
 
 ## 🚀 Instalación
 
@@ -63,13 +63,17 @@ AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
 AZURE_OPENAI_KEY=your-key
 AZURE_OPENAI_DEPLOYMENT_NAME=your-deployment-name
 AZURE_OPENAI_API_VERSION=2024-02-15-preview
+
+# Azure Application Insights (Opcional)
+AZURE_APP_INSIGHTS_CONNECTION_STRING=InstrumentationKey=your-key;IngestionEndpoint=https://your-region.in.applicationinsights.azure.com/
+AZURE_APP_INSIGHTS_INSTRUMENTATION_KEY=your-instrumentation-key
 ```
 
 ## 📁 Estructura del Proyecto
 
 ```
 Agentes_jen_rebuild/
-├── 📄 main.py                     # Controlador principal
+├── 📄 process_and_submit_batch.py # Controlador principal
 ├── 📄 document_intelligence_processor.py  # Procesador Azure DI
 ├── 📄 chunking_processor.py       # Procesador de chunking
 ├── 📄 openai_processor.py         # Procesador Azure OpenAI
@@ -88,6 +92,10 @@ Agentes_jen_rebuild/
 │       └── 📄 desembolsos.json   # Consolidado desembolsos
 ├── 📁 schemas/                    # Esquemas de validación
 ├── 📁 utils/                     # Utilidades
+│   ├── 📄 app_insights_logger.py # Logger estructurado con Azure App Insights
+│   └── 📄 jsonl_handler.py       # Manejador de archivos JSONL
+├── 📁 logs/                      # Archivos de log
+├── 📄 logging_config.json        # Configuración de logging
 └── 📁 tests/                     # Tests y debugging
 ```
 
@@ -96,7 +104,7 @@ Agentes_jen_rebuild/
 ### Ejecución Básica
 
 ```bash
-python main.py
+python process_and_submit_batch.py
 ```
 
 ### Flujo de Procesamiento
@@ -202,6 +210,37 @@ PROMPT2_PREFIXES = ['ROP', 'INI', 'DEC', 'IFS']  # Productos
 PROMPT3_PREFIXES = ['ROP', 'INI', 'DEC']  # Desembolsos
 ```
 
+## 📊 Sistema de Logging Estructurado
+
+### Azure Application Insights Integration
+
+El sistema incluye logging estructurado con integración opcional a Azure Application Insights:
+
+- **Logging JSON estructurado**: Todos los eventos se registran en formato JSON
+- **Métricas personalizadas**: Seguimiento de operaciones y rendimiento
+- **Trazabilidad completa**: Cada operación tiene un ID único
+- **Niveles de log**: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+### Configuración de Logging
+
+```json
+{
+  "version": 1,
+  "disable_existing_loggers": false,
+  "formatters": {
+    "json": {
+      "format": "{\"timestamp\": \"%(asctime)s\", \"level\": \"%(levelname)s\", \"logger\": \"%(name)s\", \"message\": \"%(message)s\", \"module\": \"%(module)s\", \"function\": \"%(funcName)s\", \"line\": %(lineno)d}"
+    }
+  }
+}
+```
+
+### Archivos de Log
+
+- `logs/app.log` - Log principal estructurado
+- `logs/error.log` - Solo errores y warnings
+- Consola - Output formateado para desarrollo
+
 ## 🧪 Testing y Debugging
 
 ### Tests Disponibles
@@ -214,12 +253,6 @@ python tests/test_main_debug.py
 python -m pytest tests/test_document_processing.py
 ```
 
-### Logs de Debug
-
-Los logs se guardan en:
-- `main_processing.log` - Log principal
-- `tests/debug_main_test.log` - Log de tests
-
 ### Verificación de Salidas
 
 ```bash
@@ -228,6 +261,9 @@ ls -la output_docs/CFA009660/
 
 # Verificar contenido JSON
 jq '.metadata' output_docs/CFA009660/productos.json
+
+# Ver logs estructurados
+tail -f logs/app.log | jq .
 ```
 
 ## 🔧 Solución de Problemas
@@ -254,14 +290,17 @@ jq '.metadata' output_docs/CFA009660/productos.json
 ### Monitoreo
 
 ```bash
-# Seguir logs en tiempo real
-tail -f main_processing.log
+# Seguir logs estructurados en tiempo real
+tail -f logs/app.log | jq .
 
-# Verificar uso de tokens
-grep "Tokens:" main_processing.log
+# Verificar errores específicos
+tail -f logs/error.log | jq .
 
-# Verificar errores
-grep "ERROR" main_processing.log
+# Filtrar por nivel de log
+grep '"level": "ERROR"' logs/app.log | jq .
+
+# Monitorear operaciones específicas
+grep 'operation_id' logs/app.log | jq .
 ```
 
 ## 📈 Métricas y Rendimiento
@@ -274,12 +313,20 @@ grep "ERROR" main_processing.log
 - **Tiempo de procesamiento**: 5-15 minutos por proyecto
 - **Uso de tokens**: 50k-200k tokens por proyecto
 
+### Métricas de Logging
+
+- **Operaciones trazadas**: Cada operación tiene ID único
+- **Tiempo de respuesta**: Medición automática de duración
+- **Tasa de errores**: Seguimiento de fallos por componente
+- **Uso de recursos**: Monitoreo de memoria y CPU
+
 ### Optimizaciones
 
 1. **Chunking inteligente** reduce llamadas a API
 2. **Filtros por prefijo** evitan procesamiento innecesario
 3. **Procesamiento en paralelo** de prompts independientes
 4. **Reutilización de extracciones** de Document Intelligence
+5. **Logging asíncrono** minimiza impacto en rendimiento
 
 ## 🔒 Seguridad
 
@@ -287,6 +334,8 @@ grep "ERROR" main_processing.log
 - ✅ No logging de información sensible
 - ✅ Validación de entrada de archivos
 - ✅ Manejo seguro de errores
+- ✅ Logging estructurado sin exposición de datos
+- ✅ Sanitización automática de logs
 
 ## 🤝 Contribución
 
@@ -298,6 +347,15 @@ grep "ERROR" main_processing.log
 
 ## 📝 Changelog
 
+### v1.1.0 (2025-09-05)
+- ✅ **Sistema de logging estructurado** con formato JSON
+- ✅ **Integración Azure Application Insights** (opcional)
+- ✅ **Trazabilidad completa** con operation_id único
+- ✅ **Métricas personalizadas** y monitoreo de rendimiento
+- ✅ **Configuración de logging** centralizada
+- ✅ **Manejo mejorado de errores** con contexto estructurado
+- ✅ **Logging asíncrono** para mejor rendimiento
+
 ### v1.0.0 (2025-09-04)
 - ✅ Implementación inicial del sistema completo
 - ✅ Integración Azure Document Intelligence
@@ -305,7 +363,7 @@ grep "ERROR" main_processing.log
 - ✅ Sistema de chunking inteligente
 - ✅ Filtros por prefijo de documento
 - ✅ Concatenación automática de resultados JSON
-- ✅ Sistema de logging completo
+- ✅ Sistema de logging básico
 - ✅ Tests y debugging tools
 
 ## 📄 Licencia

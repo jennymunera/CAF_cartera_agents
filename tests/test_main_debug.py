@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Test de debug para main.py - Procesamiento completo de documentos
+Test de debug para process_and_submit_batch.py - Procesamiento completo de documentos
 
-Este script replica la lógica de main.py en modo debug para probar específicamente
+Este script replica la lógica de process_and_submit_batch.py en modo debug para probar específicamente
 el archivo INI-CFA009660-Nota ABC 2017-0688.pdf con logs detallados.
 
 Flujo de test:
@@ -340,7 +340,7 @@ def main_debug():
     Función principal de debug que ejecuta todo el flujo.
     """
     try:
-        debug_separator("INICIO DEL TEST DE DEBUG MAIN.PY")
+        debug_separator("INICIO DEL TEST DE DEBUG PROCESS_AND_SUBMIT_BATCH.PY")
         logger.info(f"🚀 Iniciando test de debug para: {TEST_FILE}")
         logger.info(f"📁 Proyecto: {TEST_PROJECT}")
         logger.info(f"⏰ Timestamp: {datetime.now().isoformat()}")

@@ -1,15 +1,15 @@
 import re
 import tiktoken
 import json
-import logging
 from typing import List, Dict, Any, Tuple
 from pathlib import Path
 from datetime import datetime
 from utils.jsonl_handler import JSONLHandler
 from schemas.validation_schemas import validate_corpus_chunk
+from utils.app_insights_logger import get_logger
 
-# Configure logging
-logger = logging.getLogger(__name__)
+# Configure logging with Azure Application Insights
+logger = get_logger('chunking_processor')
 
 
 class ChunkingProcessor:

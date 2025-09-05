@@ -1,7 +1,6 @@
 import os
 import json
 import time
-import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -10,10 +9,10 @@ from azure.ai.documentintelligence import DocumentIntelligenceClient
 from azure.core.credentials import AzureKeyCredential
 from azure.core.exceptions import HttpResponseError
 from chunking_processor import ChunkingProcessor
+from utils.app_insights_logger import get_logger
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# Configure logging with Azure Application Insights
+logger = get_logger('document_intelligence_processor')
 
 class DocumentIntelligenceProcessor:
     """Document processor using Azure Document Intelligence to extract and concatenate content."""
