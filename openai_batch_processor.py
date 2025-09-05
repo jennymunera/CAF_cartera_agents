@@ -164,7 +164,7 @@ class OpenAIBatchProcessor:
                         "content": f"{prompt}\n\nDocumento:\n{content}"
                     }
                 ],
-                "max_tokens": 1000,
+                "max_completion_tokens": 1000,
                 "temperature": 0.3
             }
         }

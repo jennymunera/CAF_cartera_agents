@@ -143,15 +143,34 @@ class BatchResultsProcessor:
     def _log_batch_summary(self, status_info: Dict[str, Any]):
         """Registra un resumen del estado del batch."""
         counts = status_info["request_counts"]
-        self.logger.info(f"📊 Resumen del batch:")
+        self.logger.info(f"📊 Resumen del batch {status_info['batch_id']}:")
+        self.logger.info(f"   📅 Estado: {status_info['status']}")
         self.logger.info(f"   📋 Total requests: {counts['total']}")
         self.logger.info(f"   ✅ Completadas: {counts['completed']}")
         self.logger.info(f"   ❌ Fallidas: {counts['failed']}")
         
+        if status_info["completed_at"]:
+            self.logger.info(f"   ✅ Completado en: {status_info['completed_at']}")
+        if status_info["failed_at"]:
+            self.logger.info(f"   ❌ Falló en: {status_info['failed_at']}")
+        
         if status_info["output_file_id"]:
             self.logger.info(f"   📄 Archivo de salida: {status_info['output_file_id']}")
+        else:
+            self.logger.warning(f"   ⚠️ No hay archivo de salida disponible")
+            
         if status_info["error_file_id"]:
             self.logger.info(f"   ⚠️ Archivo de errores: {status_info['error_file_id']}")
+        else:
+            self.logger.info(f"   ✅ No hay archivo de errores")
+            
+        # Mostrar información adicional para diagnóstico
+        print(f"\n🔍 Información detallada del batch:")
+        print(f"   - Total de requests: {status_info['request_counts']['total']}")
+        print(f"   - Requests completados: {status_info['request_counts']['completed']}")
+        print(f"   - Requests fallidos: {status_info['request_counts']['failed']}")
+        print(f"   - Output file ID: {status_info['output_file_id'] or 'None'}")
+        print(f"   - Error file ID: {status_info['error_file_id'] or 'None'}")
     
     def download_results(self, batch_id: str, project_name: str) -> Dict[str, Any]:
         """
@@ -434,11 +453,28 @@ def main():
         status_info = processor.check_batch_status(batch_id)
         print(f"📋 Estado actual: {status_info['status']}")
         
+        # Mostrar información detallada del batch
+        processor._log_batch_summary(status_info)
+        
         if status_info['status'] == 'completed':
-            # Procesar resultados directamente
-            print(f"✅ Batch completado, procesando resultados...")
-            results = processor.download_results(batch_id, project_name)
-            print(f"🎉 Resultados procesados exitosamente")
+            # Verificar si hay archivo de salida antes de intentar descargarlo
+            if status_info['output_file_id']:
+                print(f"✅ Batch completado, procesando resultados...")
+                results = processor.download_results(batch_id, project_name)
+                print(f"🎉 Resultados procesados exitosamente")
+            else:
+                print(f"⚠️ El batch está completado pero no tiene archivo de salida.")
+                print(f"💡 Posibles causas:")
+                print(f"   - Todos los requests fallaron")
+                print(f"   - Error en el procesamiento del batch")
+                print(f"   - Problema con la configuración del batch")
+                if status_info['error_file_id']:
+                    print(f"📄 Hay un archivo de errores disponible: {status_info['error_file_id']}")
+                    try:
+                        processor._download_error_file(status_info['error_file_id'], project_name, batch_id)
+                    except Exception as e:
+                        print(f"❌ Error descargando archivo de errores: {e}")
+                return 1  # Código de error
         elif status_info['status'] in ['validating', 'in_progress', 'finalizing']:
             # Esperar completación
             print(f"⏳ Esperando completación del batch...")
