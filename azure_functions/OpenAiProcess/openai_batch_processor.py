@@ -3,10 +3,10 @@ import json
 import logging
 import re
 import time
+import requests
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from pathlib import Path
-from openai import AzureOpenAI
 from utils.app_insights_logger import get_logger
 
 # Configurar logging para reducir verbosidad de Azure
@@ -26,29 +26,93 @@ class OpenAIBatchProcessor:
         self._load_prompts()
         
     def _setup_client(self):
-        """Configura el cliente de Azure OpenAI usando variables de entorno."""
+        """Configura el cliente REST de Azure OpenAI usando variables de entorno."""
         try:
             # Obtener configuración del .env
-            api_key = os.getenv('AZURE_OPENAI_API_KEY')
-            endpoint = os.getenv('AZURE_OPENAI_ENDPOINT', 'https://OpenAI-Tech2.openai.azure.com/')
-            api_version = os.getenv('AZURE_OPENAI_API_VERSION', '2025-04-01-preview')
+            self.api_key = os.getenv('AZURE_OPENAI_API_KEY')
+            self.endpoint = os.getenv('AZURE_OPENAI_ENDPOINT', 'https://OpenAI-Tech2.openai.azure.com/')
+            self.api_version = os.getenv('AZURE_OPENAI_API_VERSION', '2025-04-01-preview')
             self.deployment_name = os.getenv('AZURE_OPENAI_DEPLOYMENT_NAME', 'o4-mini-dadmi-batch')
             
-            if not api_key:
+            if not self.api_key:
                 raise ValueError("AZURE_OPENAI_API_KEY no encontrada en variables de entorno")
             
-            self.client = AzureOpenAI(
-                api_version=api_version,
-                azure_endpoint=endpoint,
-                api_key=api_key
-            )
+            # Ensure endpoint ends with /
+            if not self.endpoint.endswith('/'):
+                self.endpoint += '/'
             
-            self.logger.info(f"Cliente Azure OpenAI Batch configurado exitosamente")
-            self.logger.info(f"Endpoint: {endpoint}")
+            self.logger.info(f"Cliente Azure OpenAI REST configurado exitosamente")
+            self.logger.info(f"Endpoint: {self.endpoint}")
             self.logger.info(f"Deployment: {self.deployment_name}")
             
         except Exception as e:
             self.logger.error(f"Error configurando cliente Azure OpenAI: {str(e)}")
+            raise
+    
+    def _make_rest_request(self, method: str, url: str, headers: Dict[str, str], data: Any = None, files: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Make REST API request to Azure OpenAI"""
+        try:
+            if method.upper() == 'POST':
+                if files:
+                    response = requests.post(url, headers=headers, files=files, timeout=300)
+                else:
+                    response = requests.post(url, headers=headers, json=data, timeout=300)
+            elif method.upper() == 'GET':
+                response = requests.get(url, headers=headers, timeout=300)
+            else:
+                raise ValueError(f"Unsupported HTTP method: {method}")
+            
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"REST API request failed: {str(e)}")
+            raise
+    
+    def _upload_file_rest(self, file_path: str) -> Dict[str, Any]:
+        """Upload file to Azure OpenAI using REST API"""
+        headers = {
+            'api-key': self.api_key
+        }
+        
+        files = {
+            'purpose': (None, 'batch'),
+            'file': (os.path.basename(file_path), open(file_path, 'rb'), 'application/jsonl')
+        }
+        
+        url = f"{self.endpoint}openai/files?api-version={self.api_version}"
+        
+        try:
+            response = requests.post(url, headers=headers, files=files, timeout=300)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"File upload failed: {str(e)}")
+            raise
+        finally:
+            files['file'][1].close()
+    
+    def _create_batch_rest(self, input_file_id: str, endpoint: str, completion_window: str, metadata: Dict[str, str]) -> Dict[str, Any]:
+        """Create batch job using REST API"""
+        headers = {
+            'api-key': self.api_key,
+            'Content-Type': 'application/json'
+        }
+        
+        data = {
+            'input_file_id': input_file_id,
+            'endpoint': endpoint,
+            'completion_window': completion_window,
+            'metadata': metadata
+        }
+        
+        url = f"{self.endpoint}openai/batches?api-version={self.api_version}"
+        
+        try:
+            response = requests.post(url, headers=headers, json=data, timeout=300)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Batch creation failed: {str(e)}")
             raise
     
     def _load_prompts(self):
@@ -214,24 +278,21 @@ class OpenAIBatchProcessor:
             
             self.logger.info(f"📄 Archivo batch creado: {batch_input_file} ({len(batch_requests)} requests)")
             
-            # Subir archivo a Azure
-            uploaded = self.client.files.create(
-                file=open(batch_input_file, "rb"),
-                purpose="batch"
-            )
+            # Subir archivo a Azure usando REST API
+            uploaded = self._upload_file_rest(batch_input_file)
             
-            # Crear batch job
-            batch = self.client.batches.create(
-                input_file_id=uploaded.id,
+            # Crear batch job usando REST API
+            batch = self._create_batch_rest(
+                input_file_id=uploaded['id'],
                 endpoint="/chat/completions",
                 completion_window="24h",
                 metadata={"project": project_name}
             )
             
             batch_info = {
-                "batch_id": batch.id,
+                "batch_id": batch['id'],
                 "project_name": project_name,
-                "input_file_id": uploaded.id,
+                "input_file_id": uploaded['id'],
                 "input_file_name": batch_input_file,
                 "created_at": datetime.now().isoformat(),
                 "status": batch.status,

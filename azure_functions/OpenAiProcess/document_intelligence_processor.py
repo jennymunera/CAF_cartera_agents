@@ -1,13 +1,11 @@
 import os
 import json
 import time
+import requests
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
-from azure.ai.documentintelligence import DocumentIntelligenceClient
-from azure.core.credentials import AzureKeyCredential
-from azure.core.exceptions import HttpResponseError
 from chunking_processor import ChunkingProcessor
 from utils.app_insights_logger import get_logger
 
@@ -26,11 +24,12 @@ class DocumentIntelligenceProcessor:
         self.auto_chunk = auto_chunk
         self.max_tokens = max_tokens
         
-        # Initialize Document Intelligence client
-        self.client = DocumentIntelligenceClient(
-            endpoint=self.endpoint,
-            credential=AzureKeyCredential(self.api_key)
-        )
+        # Ensure endpoint ends with /
+        if not self.endpoint.endswith('/'):
+            self.endpoint += '/'
+            
+        # API version for Document Intelligence
+        self.api_version = "2024-02-29-preview"
         
         # Create directories if they don't exist
         self.input_dir.mkdir(exist_ok=True)
@@ -121,8 +120,27 @@ class DocumentIntelligenceProcessor:
             logger.warning(f"Error checking if document {file_path.name} was processed: {str(e)}")
             return False  # If we can't check, assume it needs processing
     
+    def _make_rest_request(self, method: str, url: str, headers: Dict[str, str], data: Any = None, files: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Make REST API request to Document Intelligence"""
+        try:
+            if method.upper() == 'POST':
+                if files:
+                    response = requests.post(url, headers=headers, files=files, timeout=300)
+                else:
+                    response = requests.post(url, headers=headers, json=data, timeout=300)
+            elif method.upper() == 'GET':
+                response = requests.get(url, headers=headers, timeout=300)
+            else:
+                raise ValueError(f"Unsupported HTTP method: {method}")
+            
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"REST API request failed: {str(e)}")
+            raise
+    
     def process_single_document(self, file_path, model_id: str = "prebuilt-layout") -> Dict[str, Any]:
-        """Processes a single document and extracts its content.
+        """Processes a single document and extracts its content using REST API.
         
         Args:
             file_path: Path to the file to process (string or Path object)
@@ -136,29 +154,74 @@ class DocumentIntelligenceProcessor:
             if isinstance(file_path, str):
                 file_path = Path(file_path)
                 
-            logger.info(f"Processing document with Document Intelligence: {file_path.name}")
+            logger.info(f"Processing document with Document Intelligence REST API: {file_path.name}")
             
-            # Read file
+            # Prepare headers
+            headers = {
+                'Ocp-Apim-Subscription-Key': self.api_key
+            }
+            
+            # Determine output format based on file type
+            output_format = "markdown" if file_path.suffix.lower() == '.docx' else "markdown"
+            
+            # Start analysis
+            analyze_url = f"{self.endpoint}documentintelligence/documentModels/{model_id}:analyze"
+            analyze_params = {
+                'api-version': self.api_version,
+                'outputContentFormat': output_format
+            }
+            
+            # Add query parameters to URL
+            analyze_url_with_params = f"{analyze_url}?" + "&".join([f"{k}={v}" for k, v in analyze_params.items()])
+            
+            # Read file and prepare for upload
             with open(file_path, 'rb') as f:
                 document_bytes = f.read()
             
-            # Analyze document - using recommended approach for v4.0 with direct markdown output
-            # For .docx files, don't specify content_type for automatic detection
-            if file_path.suffix.lower() == '.docx':
-                poller = self.client.begin_analyze_document(
-                    model_id=model_id,
-                    body=document_bytes,
-                    output_content_format="markdown"
-                )
-            else:
-                poller = self.client.begin_analyze_document(
-                    model_id=model_id,
-                    body=document_bytes,
-                    content_type="application/octet-stream",
-                    output_content_format="markdown"
-                )
+            # Prepare files for multipart upload
+            files = {
+                'file': (file_path.name, document_bytes, 'application/octet-stream')
+            }
             
-            result = poller.result()
+            # Start the analysis
+            response = requests.post(
+                analyze_url_with_params,
+                headers=headers,
+                files=files,
+                timeout=300
+            )
+            response.raise_for_status()
+            
+            # Get operation location from response headers
+            operation_location = response.headers.get('Operation-Location')
+            if not operation_location:
+                raise ValueError("No operation location returned from analysis request")
+            
+            # Poll for results
+            max_attempts = 60  # 5 minutes with 5-second intervals
+            attempt = 0
+            
+            while attempt < max_attempts:
+                result_response = requests.get(operation_location, headers={'Ocp-Apim-Subscription-Key': self.api_key})
+                result_response.raise_for_status()
+                result_data = result_response.json()
+                
+                status = result_data.get('status')
+                if status == 'succeeded':
+                    break
+                elif status == 'failed':
+                    error_msg = result_data.get('error', {}).get('message', 'Analysis failed')
+                    raise Exception(f"Document analysis failed: {error_msg}")
+                
+                time.sleep(5)
+                attempt += 1
+            
+            if attempt >= max_attempts:
+                raise Exception("Document analysis timed out")
+            
+            # Extract content from results
+            analyze_result = result_data.get('analyzeResult', {})
+            result = type('AnalyzeResult', (), analyze_result)()
             
             # Use direct markdown content from Document Intelligence
             markdown_content = result.content if result.content else self._convert_to_markdown(result)

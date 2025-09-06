@@ -8,7 +8,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from dotenv import load_dotenv
-from openai import AzureOpenAI
+import requests
 
 # Agregar el directorio padre al path para importar los módulos locales
 sys.path.append(str(Path(__file__).parent))
@@ -149,22 +149,51 @@ class BatchResultsProcessor:
         self.client = self._setup_client()
         self.blob_client = BlobStorageClient()
         
-    def _setup_client(self) -> AzureOpenAI:
+    def _setup_client(self):
         """
-        Configura el cliente de Azure OpenAI
+        Configura el cliente REST de Azure OpenAI
         """
-        api_key = os.getenv('AZURE_OPENAI_API_KEY')
-        endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
-        api_version = os.getenv('AZURE_OPENAI_API_VERSION', '2024-02-15-preview')
+        self.api_key = os.getenv('AZURE_OPENAI_API_KEY')
+        self.endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
+        self.api_version = os.getenv('AZURE_OPENAI_API_VERSION', '2024-02-15-preview')
         
-        if not api_key or not endpoint:
+        if not self.api_key or not self.endpoint:
             raise ValueError("Faltan credenciales de Azure OpenAI")
         
-        return AzureOpenAI(
-            api_key=api_key,
-            api_version=api_version,
-            azure_endpoint=endpoint
-        )
+        # Ensure endpoint ends with /
+        if not self.endpoint.endswith('/'):
+            self.endpoint += '/'
+    
+    def _make_rest_request(self, method: str, url: str, **kwargs) -> dict:
+        """
+        Realiza una petición REST a la API de Azure OpenAI
+        """
+        headers = {
+            'api-key': self.api_key,
+            'Content-Type': 'application/json'
+        }
+        
+        if 'headers' in kwargs:
+            headers.update(kwargs['headers'])
+            del kwargs['headers']
+        
+        response = requests.request(method, url, headers=headers, **kwargs)
+        response.raise_for_status()
+        return response.json()
+    
+    def _list_batches_rest(self, limit: int = 100) -> dict:
+        """
+        Lista batches usando REST API
+        """
+        url = f"{self.endpoint}openai/batches?api-version={self.api_version}&limit={limit}"
+        return self._make_rest_request('GET', url)
+    
+    def _get_batch_rest(self, batch_id: str) -> dict:
+        """
+        Obtiene información de un batch específico usando REST API
+        """
+        url = f"{self.endpoint}openai/batches/{batch_id}?api-version={self.api_version}"
+        return self._make_rest_request('GET', url)
     
     def get_pending_batches(self) -> List[Dict[str, Any]]:
         """
@@ -177,17 +206,17 @@ class BatchResultsProcessor:
             # Aquí se implementaría la lógica para obtener batches pendientes
             # desde Azure Storage, Cosmos DB, o el sistema de almacenamiento usado
             
-            # Por ahora, obtenemos todos los batches y filtramos los pendientes
-            batches = self.client.batches.list(limit=100)
+            # Por ahora, obtenemos todos los batches y filtramos los pendientes usando REST API
+            batches = self._list_batches_rest(limit=100)
             
             pending_batches = []
-            for batch in batches.data:
-                if batch.status in ['validating', 'in_progress', 'finalizing']:
+            for batch in batches.get('data', []):
+                if batch.get('status') in ['validating', 'in_progress', 'finalizing']:
                     pending_batches.append({
-                        'batch_id': batch.id,
-                        'status': batch.status,
-                        'created_at': batch.created_at,
-                        'metadata': batch.metadata
+                        'batch_id': batch.get('id'),
+                        'status': batch.get('status'),
+                        'created_at': batch.get('created_at'),
+                        'metadata': batch.get('metadata', {})
                     })
             
             return pending_batches
@@ -211,8 +240,8 @@ class BatchResultsProcessor:
             Estado del batch
         """
         try:
-            batch = self.client.batches.retrieve(batch_id)
-            return batch.status
+            batch = self._get_batch_rest(batch_id)
+            return batch.get('status', 'unknown')
             
         except Exception as e:
             self.logger.log_error(
