@@ -65,7 +65,7 @@ AZURE_OPENAI_DEPLOYMENT_NAME=your-deployment-name
 AZURE_OPENAI_API_VERSION=2024-02-15-preview
 
 # Azure Application Insights (Opcional)
-AZURE_APP_INSIGHTS_CONNECTION_STRING=InstrumentationKey=your-key;IngestionEndpoint=https://your-region.in.applicationinsights.azure.com/
+APPLICATIONINSIGHTS_CONNECTION_STRING=InstrumentationKey=your-key;IngestionEndpoint=https://your-region.in.applicationinsights.azure.com/
 AZURE_APP_INSIGHTS_INSTRUMENTATION_KEY=your-instrumentation-key
 ```
 

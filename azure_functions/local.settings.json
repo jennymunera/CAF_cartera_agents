@@ -1,0 +1,34 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "FUNCTIONS_EXTENSION_VERSION": "~4",
+    "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT": "",
+    "AZURE_DOCUMENT_INTELLIGENCE_KEY": "",
+    "AZURE_OPENAI_API_KEY": "",
+    "AZURE_OPENAI_ENDPOINT": "https://OpenAI-Tech2.openai.azure.com/",
+    "AZURE_OPENAI_API_VERSION": "2025-04-01-preview",
+    "AZURE_OPENAI_DEPLOYMENT_NAME": "o4-mini-dadmi-batch",
+    "AZURE_STORAGE_CONNECTION_STRING": "",
+    "AZURE_STORAGE_CONTAINER_NAME": "caf-documents",
+    "APPLICATIONINSIGHTS_CONNECTION_STRING": "",
+    "AZURE_APP_INSIGHTS_INSTRUMENTATION_KEY": "",
+    "ServiceBusConnection": "",
+    "ServiceBusQueueName": "recoaudit-queue",
+    "SERVICEBUS_CONNECTION_STRING": "",
+    "SERVICEBUS_QUEUE_NAME": "recoaudit-queue",
+    "AZURE_STORAGE_OUTPUT_CONNECTION_STRING": "",
+    "COSMOS_DB_CONNECTION_STRING": "",
+    "LOG_LEVEL": "INFO",
+    "LOG_TO_FILE": "true",
+    "LOG_FILE_PATH": "logs/application.log",
+    "LOG_TO_CONSOLE": "true",
+    "LOG_FORMAT": "json"
+  },
+  "ConnectionStrings": {
+    "ServiceBusConnection": "",
+    "StorageConnection": "",
+    "CosmosDbConnection": ""
+  }
+}

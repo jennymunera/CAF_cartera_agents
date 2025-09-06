@@ -57,7 +57,7 @@ Después de crear el recurso:
 2. Edita el archivo `.env` y actualiza las siguientes variables:
    ```env
    # Azure Application Insights
-   AZURE_APP_INSIGHTS_CONNECTION_STRING=InstrumentationKey=tu-instrumentation-key;IngestionEndpoint=https://tu-region.in.applicationinsights.azure.com/;LiveEndpoint=https://tu-region.livediagnostics.monitor.azure.com/
+   APPLICATIONINSIGHTS_CONNECTION_STRING=InstrumentationKey=tu-instrumentation-key;IngestionEndpoint=https://tu-region.in.applicationinsights.azure.com/;LiveEndpoint=https://tu-region.livediagnostics.monitor.azure.com/
    AZURE_APP_INSIGHTS_INSTRUMENTATION_KEY=tu-instrumentation-key
    
    # Configuración de Logging

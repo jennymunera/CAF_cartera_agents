@@ -1,0 +1,11 @@
+.git*
+.vscode
+__pycache__
+*.pyc
+.env
+local.settings.json
+.DS_Store
+*.log
+logs/
+tests/
+*.md

@@ -29,6 +29,7 @@ from document_intelligence_processor import DocumentIntelligenceProcessor
 from chunking_processor import ChunkingProcessor
 from openai_batch_processor import OpenAIBatchProcessor
 from utils.app_insights_logger import get_logger, generate_operation_id
+from utils.blob_storage_client import BlobStorageClient
 
 # Cargar variables de entorno
 load_dotenv()
@@ -70,101 +71,112 @@ def setup_document_intelligence() -> DocumentIntelligenceProcessor:
 
 
 def process_single_document_with_custom_output(processor: DocumentIntelligenceProcessor, 
-                                              file_path: Path, 
-                                              project_name: str) -> tuple[Dict[str, Any], bool]:
+                                              project_name: str,
+                                              document_name: str,
+                                              blob_client: BlobStorageClient) -> tuple[Dict[str, Any], bool]:
     """
-    Procesa un documento individual y guarda el resultado en la estructura personalizada.
+    Procesa un documento individual desde Azure Blob Storage y guarda el resultado en la estructura personalizada.
     
     Args:
         processor: Instancia del procesador de Document Intelligence
-        file_path: Ruta al archivo a procesar
         project_name: Nombre del proyecto
+        document_name: Nombre del documento a procesar
+        blob_client: Cliente de Azure Blob Storage
         
     Returns:
         Tuple con (Dict con los resultados del procesamiento, bool indicando si fue saltado)
     """
-    logger.info(f"📄 Procesando documento: {file_path.name}")
+    logger.info(f"📄 Procesando documento: {document_name}")
     
     # Verificar si el documento ya está procesado
-    if processor._is_document_already_processed(file_path, project_name):
-        logger.info(f"⏭️ Documento ya procesado, saltando: {file_path.name}")
-        
-        # Intentar cargar resultado existente de la carpeta DI
-        output_base = Path("output_docs") / project_name / "DI"
-        document_name = file_path.stem
-        output_file = output_base / f"{document_name}.json"
-        
-        if output_file.exists():
-            # Cargar desde archivo DI
-            with open(output_file, 'r', encoding='utf-8') as f:
-                result = json.load(f)
-            return result, True  # True indica que fue saltado
-        else:
-            # El documento está chunkeado pero no tiene archivo DI
-            # Crear un resultado mínimo para indicar que está procesado
+    document_stem = Path(document_name).stem
+    output_base = Path("output_docs") / project_name / "DI"
+    output_file = output_base / f"{document_stem}.json"
+    
+    if output_file.exists():
+        logger.info(f"⏭️ Documento ya procesado, saltando: {document_name}")
+        # Cargar desde archivo DI
+        with open(output_file, 'r', encoding='utf-8') as f:
+            result = json.load(f)
+        return result, True  # True indica que fue saltado
+    
+    # Verificar si ya está chunkeado
+    chunks_dir = Path("output_docs") / project_name / "chunks"
+    if chunks_dir.exists():
+        chunk_files = list(chunks_dir.glob(f"{document_stem}_chunk_*.json"))
+        if chunk_files:
+            logger.info(f"⏭️ Documento ya chunkeado, saltando: {document_name}")
             result = {
                 "metadata": {
                     "processing_status": "chunked_only",
-                    "document_name": file_path.name,
+                    "document_name": document_name,
                     "processed_date": datetime.now().isoformat()
                 },
                 "content": "Document already chunked - no DI processing needed"
             }
             return result, True  # True indica que fue saltado
     
-    # Procesar documento
-    result = processor.process_single_document(file_path)
+    # Descargar documento desde Blob Storage
+    temp_file_path = blob_client.download_document(project_name, document_name)
     
-    # Crear estructura de directorios personalizada
-    output_base = Path("output_docs") / project_name / "DI"
-    output_base.mkdir(parents=True, exist_ok=True)
-    
-    # Guardar resultado en formato JSON
-    document_name = file_path.stem
-    output_file = output_base / f"{document_name}.json"
-    
-    with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(result, f, indent=2, ensure_ascii=False)
-    
-    logger.info(f"💾 Resultado guardado: {output_file}")
-    return result, False  # False indica que fue procesado
+    try:
+        # Procesar documento
+        result = processor.process_single_document(Path(temp_file_path))
+        
+        # Crear estructura de directorios personalizada
+        output_base.mkdir(parents=True, exist_ok=True)
+        
+        # Guardar resultado en formato JSON
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(result, f, indent=2, ensure_ascii=False)
+        
+        logger.info(f"💾 Resultado guardado: {output_file}")
+        return result, False  # False indica que fue procesado
+        
+    finally:
+        # Limpiar archivo temporal
+        if os.path.exists(temp_file_path):
+            os.unlink(temp_file_path)
 
 
 def process_project_documents_with_custom_output(processor: DocumentIntelligenceProcessor, 
-                                                project_name: str) -> Dict[str, Any]:
+                                                project_name: str,
+                                                blob_client: BlobStorageClient) -> Dict[str, Any]:
     """
-    Procesa todos los documentos de un proyecto y guarda cada uno individualmente.
+    Procesa todos los documentos de un proyecto desde Azure Blob Storage y guarda cada uno individualmente.
     
     Args:
         processor: Instancia del procesador de Document Intelligence
         project_name: Nombre del proyecto a procesar
+        blob_client: Cliente de Azure Blob Storage
         
     Returns:
         Dict con resumen del procesamiento del proyecto
     """
     logger.info(f"📁 Procesando proyecto: {project_name}")
     
-    # Obtener lista de documentos del proyecto
-    project_path = Path("input_docs") / project_name
-    if not project_path.exists():
-        raise FileNotFoundError(f"Proyecto no encontrado: {project_path}")
+    # Obtener lista de documentos del proyecto desde Blob Storage
+    all_documents = blob_client.list_documents(project_name)
     
-    # Extensiones soportadas
-    supported_extensions = ['*.pdf', '*.docx', '*.doc', '*.xlsx', '*.xls']
-    
-    # Encontrar todos los documentos
-    all_documents = []
-    for ext in supported_extensions:
-        all_documents.extend(project_path.glob(ext))
+    if not all_documents:
+        logger.info(f"📊 No se encontraron documentos en el proyecto: {project_name}")
+        return {
+            'project_name': project_name,
+            'total_documents': 0,
+            'successful_documents': 0,
+            'skipped_documents': 0,
+            'failed_documents': 0,
+            'processed_documents': [],
+            'processing_timestamp': datetime.now().isoformat()
+        }
     
     # Filtrar por prefijos requeridos
-    required_prefixes = ['INI', 'IXP', 'DEC', 'ROP', 'IFS']
+    required_prefixes = ['Auditoria', 'Desembolsos', 'Productos']
     filtered_documents = []
     
-    for doc_path in all_documents:
-        filename = doc_path.name.upper()
-        if any(filename.startswith(prefix) for prefix in required_prefixes):
-            filtered_documents.append(doc_path)
+    for doc_name in all_documents:
+        if any(doc_name.startswith(prefix) for prefix in required_prefixes):
+            filtered_documents.append(doc_name)
     
     logger.info(f"📊 Documentos encontrados: {len(all_documents)} total, {len(filtered_documents)} con prefijos requeridos")
     
@@ -174,13 +186,13 @@ def process_project_documents_with_custom_output(processor: DocumentIntelligence
     failed_count = 0
     skipped_count = 0
     
-    for doc_path in filtered_documents:
+    for doc_name in filtered_documents:
         try:
-            result, was_skipped = process_single_document_with_custom_output(processor, doc_path, project_name)
+            result, was_skipped = process_single_document_with_custom_output(processor, project_name, doc_name, blob_client)
             
             if was_skipped:
                 processed_documents.append({
-                    'filename': doc_path.name,
+                    'filename': doc_name,
                     'status': 'skipped',
                     'content_length': len(result['content']),
                     'metadata': result['metadata']
@@ -188,7 +200,7 @@ def process_project_documents_with_custom_output(processor: DocumentIntelligence
                 skipped_count += 1
             else:
                 processed_documents.append({
-                    'filename': doc_path.name,
+                    'filename': doc_name,
                     'status': 'success',
                     'content_length': len(result['content']),
                     'metadata': result['metadata']
@@ -196,9 +208,9 @@ def process_project_documents_with_custom_output(processor: DocumentIntelligence
                 successful_count += 1
             
         except Exception as e:
-            logger.error(f"❌ Error procesando {doc_path.name}: {str(e)}")
+            logger.error(f"❌ Error procesando {doc_name}: {str(e)}")
             processed_documents.append({
-                'filename': doc_path.name,
+                'filename': doc_name,
                 'status': 'failed',
                 'error': str(e)
             })
@@ -447,26 +459,20 @@ def main():
         chunking_processor = setup_chunking_processor()
         batch_processor = setup_azure_openai_batch()
         
-        # Obtener lista de proyectos disponibles
-        input_dir = Path("input_docs")
-        if not input_dir.exists():
-            logger.log_error(
-                message="Directorio input_docs no encontrado",
-                operation_id=operation_id,
-                error_type="FileNotFoundError"
-            )
-            raise FileNotFoundError("Directorio input_docs no encontrado")
+        # Configurar cliente de Blob Storage
+        blob_client = BlobStorageClient()
         
-        projects = [p.name for p in input_dir.iterdir() if p.is_dir()]
+        # Obtener lista de proyectos disponibles desde Blob Storage
+        projects = blob_client.list_projects()
         logger.info(
-            f"📁 Proyectos disponibles: {projects}",
+            f"📁 Proyectos disponibles en Blob Storage: {projects}",
             projects=projects,
             project_count=len(projects),
             operation_id=operation_id
         )
         
         if not projects:
-            logger.warning("⚠️  No se encontraron proyectos en input_docs")
+            logger.warning("⚠️  No se encontraron proyectos en el Blob Storage")
             return
         
         # Procesar cada proyecto
@@ -485,7 +491,7 @@ def main():
             try:
                 # Etapa 1: Document Intelligence
                 logger.info("📄 ETAPA 1: Procesamiento con Document Intelligence")
-                di_summary = process_project_documents_with_custom_output(doc_processor, project_name)
+                di_summary = process_project_documents_with_custom_output(doc_processor, project_name, blob_client)
                 
                 # Etapa 2: Chunking
                 logger.info("\n📝 ETAPA 2: Procesamiento de Chunking")
