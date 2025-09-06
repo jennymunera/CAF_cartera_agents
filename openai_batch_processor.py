@@ -205,8 +205,12 @@ class OpenAIBatchProcessor:
             if not batch_requests:
                 raise ValueError(f"No se encontraron documentos para procesar en {project_path}")
             
+            # Crear directorio para logs de OpenAI
+            openai_logs_dir = os.path.join("output_docs", project_name, "openai_logs")
+            os.makedirs(openai_logs_dir, exist_ok=True)
+            
             # Crear archivo JSONL (formato requerido por Azure Batch API)
-            batch_input_file = f"batch_input_{project_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl"
+            batch_input_file = os.path.join(openai_logs_dir, f"batch_input_{project_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl")
             
             with open(batch_input_file, 'w', encoding='utf-8') as f:
                 for request in batch_requests:
@@ -240,7 +244,7 @@ class OpenAIBatchProcessor:
             }
             
             # Guardar información del batch
-            batch_info_file = f"batch_info_{project_name}_{batch.id}.json"
+            batch_info_file = os.path.join(openai_logs_dir, f"batch_info_{project_name}_{batch.id}.json")
             with open(batch_info_file, 'w', encoding='utf-8') as f:
                 json.dump(batch_info, f, indent=2, ensure_ascii=False)
             

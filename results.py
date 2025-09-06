@@ -200,9 +200,13 @@ class BatchResultsProcessor:
             file_response = self.client.files.content(output_file_id)
             results_content = file_response.read().decode('utf-8')
             
+            # Crear directorio para logs de OpenAI
+            openai_logs_dir = os.path.join("output_docs", project_name, "openai_logs")
+            os.makedirs(openai_logs_dir, exist_ok=True)
+            
             # Guardar archivo de resultados raw
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            raw_results_file = f"batch_results_raw_{project_name}_{batch_id}_{timestamp}.jsonl"
+            raw_results_file = os.path.join(openai_logs_dir, f"batch_results_raw_{project_name}_{batch_id}_{timestamp}.jsonl")
             
             with open(raw_results_file, 'w', encoding='utf-8') as f:
                 f.write(results_content)
@@ -236,8 +240,12 @@ class BatchResultsProcessor:
             error_response = self.client.files.content(error_file_id)
             error_content = error_response.read().decode('utf-8')
             
+            # Crear directorio para logs de OpenAI
+            openai_logs_dir = os.path.join("output_docs", project_name, "openai_logs")
+            os.makedirs(openai_logs_dir, exist_ok=True)
+            
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            error_file = f"batch_errors_{project_name}_{batch_id}_{timestamp}.jsonl"
+            error_file = os.path.join(openai_logs_dir, f"batch_errors_{project_name}_{batch_id}_{timestamp}.jsonl")
             
             with open(error_file, 'w', encoding='utf-8') as f:
                 f.write(error_content)
@@ -264,6 +272,10 @@ class BatchResultsProcessor:
             Dict con resultados organizados
         """
         try:
+            # Crear directorio para logs de OpenAI
+            openai_logs_dir = os.path.join("output_docs", project_name, "openai_logs")
+            os.makedirs(openai_logs_dir, exist_ok=True)
+            
             results_by_document = {}
             results_by_prompt = {"auditoria": [], "desembolsos": [], "productos": []}
             total_processed = 0
@@ -297,14 +309,40 @@ class BatchResultsProcessor:
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             
             # Guardar resultados por documento
-            documents_file = f"results_by_document_{project_name}_{timestamp}.json"
+            documents_file = os.path.join(openai_logs_dir, f"results_by_document_{project_name}_{timestamp}.json")
             with open(documents_file, 'w', encoding='utf-8') as f:
                 json.dump(results_by_document, f, indent=2, ensure_ascii=False)
             
             # Guardar resultados por prompt
-            prompts_file = f"results_by_prompt_{project_name}_{timestamp}.json"
+            prompts_file = os.path.join(openai_logs_dir, f"results_by_prompt_{project_name}_{timestamp}.json")
             with open(prompts_file, 'w', encoding='utf-8') as f:
                 json.dump(results_by_prompt, f, indent=2, ensure_ascii=False)
+            
+            # Crear carpeta de salida para archivos separados por prompt
+            output_dir = Path(f"output_docs/{project_name}/results")
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Extraer y guardar contenido por tipo de prompt
+            prompt_files = {}
+            for prompt_type, results in results_by_prompt.items():
+                if results:  # Solo procesar si hay resultados
+                    # Extraer solo el contenido de cada resultado
+                    content_list = []
+                    for result in results:
+                        if result.get('content'):
+                            content = result['content']
+                            parsed_content = self._extract_json_content(content)
+                            content_list.append(parsed_content)
+                    
+                    # Guardar archivo separado por prompt
+                    prompt_filename = f"{prompt_type}.json"
+                    prompt_filepath = output_dir / prompt_filename
+                    
+                    with open(prompt_filepath, 'w', encoding='utf-8') as f:
+                        json.dump(content_list, f, indent=2, ensure_ascii=False)
+                    
+                    prompt_files[prompt_type] = str(prompt_filepath)
+                    self.logger.info(f"📄 Archivo {prompt_type}: {prompt_filepath} ({len(content_list)} elementos)")
             
             # Generar resumen
             summary = {
@@ -319,18 +357,17 @@ class BatchResultsProcessor:
                 },
                 "output_files": {
                     "by_document": documents_file,
-                    "by_prompt": prompts_file
+                    "by_prompt": prompts_file,
+                    "separated_prompts": prompt_files
                 },
                 "documents_processed": len(results_by_document),
                 "prompts_results": {
-                    "auditoria": len(results_by_prompt["auditoria"]),
-                    "desembolsos": len(results_by_prompt["desembolsos"]),
-                    "productos": len(results_by_prompt["productos"])
+                    prompt_type: len(results) for prompt_type, results in results_by_prompt.items()
                 }
             }
             
             # Guardar resumen
-            summary_file = f"batch_summary_{project_name}_{timestamp}.json"
+            summary_file = os.path.join(openai_logs_dir, f"batch_summary_{project_name}_{timestamp}.json")
             with open(summary_file, 'w', encoding='utf-8') as f:
                 json.dump(summary, f, indent=2, ensure_ascii=False)
             
@@ -344,6 +381,10 @@ class BatchResultsProcessor:
             self.logger.info(f"      📋 Por documento: {documents_file}")
             self.logger.info(f"      🎯 Por prompt: {prompts_file}")
             self.logger.info(f"      📊 Resumen: {summary_file}")
+            if prompt_files:
+                self.logger.info(f"      🗂️ Archivos separados por prompt:")
+                for prompt_type, filepath in prompt_files.items():
+                    self.logger.info(f"         {prompt_type}: {filepath}")
             
             return summary
             
@@ -351,6 +392,77 @@ class BatchResultsProcessor:
             self.logger.error(f"Error procesando resultados del batch: {str(e)}")
             raise
     
+    def _extract_json_content(self, content: str) -> Any:
+        """
+        Extrae y parsea contenido JSON de diferentes formatos:
+        1. Bloques de código ```json
+        2. JSON directo
+        3. JSON embebido en texto
+        4. Manejo de JSON truncado/incompleto
+        """
+        if not content or not isinstance(content, str):
+            return content
+            
+        # Caso 1: Contenido en bloque de código ```json
+        if content.startswith('```json\n'):
+            # Manejar diferentes terminaciones: \n```, \n```\n, etc.
+            if content.endswith('\n```'):
+                json_content = content[8:-4]  # Remover ```json\n y \n```
+            elif content.endswith('\n```\n'):
+                json_content = content[8:-5]  # Remover ```json\n y \n```\n
+            elif content.endswith('```'):
+                json_content = content[8:-3]  # Remover ```json\n y ```
+            else:
+                # Buscar el final del bloque o manejar JSON truncado
+                end_pos = content.rfind('```')
+                if end_pos > 8:
+                    json_content = content[8:end_pos].rstrip('\n')
+                else:
+                    # JSON posiblemente truncado - intentar reparar
+                    json_content = content[8:]  # Remover ```json\n
+                    # Si termina de forma incompleta, intentar completar
+                    if not json_content.rstrip().endswith(('}', ']')):
+                        # Contar llaves/corchetes para intentar cerrar
+                        open_braces = json_content.count('{') - json_content.count('}')
+                        open_brackets = json_content.count('[') - json_content.count(']')
+                        
+                        # Intentar cerrar las estructuras abiertas
+                        if open_braces > 0 or open_brackets > 0:
+                            json_content = json_content.rstrip()
+                            # Remover comas finales
+                            if json_content.endswith(','):
+                                json_content = json_content[:-1]
+                            # Cerrar estructuras
+                            json_content += '}' * open_braces + ']' * open_brackets
+            
+            try:
+                return json.loads(json_content)
+            except json.JSONDecodeError as e:
+                self.logger.warning(f"No se pudo parsear JSON del bloque de código: {str(e)[:100]}")
+                return content
+        
+        # Caso 2: Contenido que empieza directamente con { o [
+        content_stripped = content.strip()
+        if content_stripped.startswith(('{', '[')):
+            try:
+                return json.loads(content_stripped)
+            except json.JSONDecodeError:
+                self.logger.warning(f"No se pudo parsear JSON directo")
+                return content
+        
+        # Caso 3: Buscar JSON dentro del texto
+        import re
+        json_pattern = r'```json\s*\n([\s\S]*?)\n```'
+        match = re.search(json_pattern, content)
+        if match:
+            try:
+                return json.loads(match.group(1))
+            except json.JSONDecodeError:
+                self.logger.warning(f"No se pudo parsear JSON encontrado en el texto")
+        
+        # Si no se puede parsear de ninguna manera, devolver el contenido original
+        return content
+
     def _process_successful_response(self, result: Dict[str, Any], results_by_document: Dict, results_by_prompt: Dict):
         """
         Procesa una respuesta exitosa y la organiza en las estructuras de datos.
