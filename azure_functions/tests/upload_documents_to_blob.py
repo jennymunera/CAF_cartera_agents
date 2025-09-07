@@ -10,7 +10,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Agregar el directorio utils al path
-sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'OpenAiProcess', 'utils'))
 
 from blob_storage_client import BlobStorageClient
 
@@ -30,8 +30,8 @@ def upload_documents_to_blob():
     
     # Inicializar cliente de Blob Storage
     try:
-        blob_client = BlobStorageClient(connection_string, container_name)
-        print(f"✅ Conectado al contenedor: {container_name}")
+        blob_client = BlobStorageClient()
+        print(f"✅ Conectado al contenedor: {blob_client.container_name}")
     except Exception as e:
         print(f"❌ Error conectando al Blob Storage: {e}")
         return False

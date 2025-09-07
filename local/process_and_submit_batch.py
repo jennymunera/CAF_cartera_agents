@@ -61,8 +61,8 @@ def setup_document_intelligence() -> DocumentIntelligenceProcessor:
     processor = DocumentIntelligenceProcessor(
         endpoint=endpoint,
         api_key=api_key,
-        input_dir="input_docs",
-        output_dir="output_docs",
+        input_dir="local/input_docs",
+            output_dir="local/output_docs",
         auto_chunk=False  # Manejamos chunking manualmente
     )
     
@@ -75,13 +75,13 @@ def process_single_document_with_custom_output(processor: DocumentIntelligencePr
                                               document_name: str,
                                               blob_client: BlobStorageClient) -> tuple[Dict[str, Any], bool]:
     """
-    Procesa un documento individual desde Azure Blob Storage y guarda el resultado en la estructura personalizada.
+    Procesa un documento individual desde carpeta local y guarda el resultado en la estructura personalizada.
     
     Args:
         processor: Instancia del procesador de Document Intelligence
         project_name: Nombre del proyecto
         document_name: Nombre del documento a procesar
-        blob_client: Cliente de Azure Blob Storage
+        blob_client: Cliente de Azure Blob Storage (para compatibilidad)
         
     Returns:
         Tuple con (Dict con los resultados del procesamiento, bool indicando si fue saltado)
@@ -90,7 +90,7 @@ def process_single_document_with_custom_output(processor: DocumentIntelligencePr
     
     # Verificar si el documento ya está procesado
     document_stem = Path(document_name).stem
-    output_base = Path("output_docs") / project_name / "DI"
+    output_base = Path("local/output_docs") / project_name / "DI"
     output_file = output_base / f"{document_stem}.json"
     
     if output_file.exists():
@@ -101,7 +101,7 @@ def process_single_document_with_custom_output(processor: DocumentIntelligencePr
         return result, True  # True indica que fue saltado
     
     # Verificar si ya está chunkeado
-    chunks_dir = Path("output_docs") / project_name / "chunks"
+    chunks_dir = Path("local/output_docs") / project_name / "chunks"
     if chunks_dir.exists():
         chunk_files = list(chunks_dir.glob(f"{document_stem}_chunk_*.json"))
         if chunk_files:
@@ -116,47 +116,69 @@ def process_single_document_with_custom_output(processor: DocumentIntelligencePr
             }
             return result, True  # True indica que fue saltado
     
-    # Descargar documento desde Blob Storage
-    temp_file_path = blob_client.download_document(project_name, document_name)
+    # Obtener ruta del documento local
+    local_file_path = Path(f"local/input_docs/{project_name}/{document_name}")
     
-    try:
-        # Procesar documento
-        result = processor.process_single_document(Path(temp_file_path))
+    if not local_file_path.exists():
+        logger.error(f"❌ Archivo no encontrado: {local_file_path}")
+        raise FileNotFoundError(f"Documento no encontrado: {local_file_path}")
+    
+    # Procesar documento
+    result = processor.process_single_document(local_file_path)
+    
+    # Crear estructura de directorios personalizada
+    output_base.mkdir(parents=True, exist_ok=True)
+    
+    # Guardar resultado en formato JSON
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(result, f, indent=2, ensure_ascii=False)
+    
+    logger.info(f"💾 Resultado guardado: {output_file}")
+    return result, False  # False indica que fue procesado
+
+
+def get_local_documents(project_name: str) -> List[str]:
+    """
+    Obtiene la lista de documentos disponibles en la carpeta local/input_docs/{project_name}.
+    
+    Args:
+        project_name: Nombre del proyecto
         
-        # Crear estructura de directorios personalizada
-        output_base.mkdir(parents=True, exist_ok=True)
-        
-        # Guardar resultado en formato JSON
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(result, f, indent=2, ensure_ascii=False)
-        
-        logger.info(f"💾 Resultado guardado: {output_file}")
-        return result, False  # False indica que fue procesado
-        
-    finally:
-        # Limpiar archivo temporal
-        if os.path.exists(temp_file_path):
-            os.unlink(temp_file_path)
+    Returns:
+        List[str]: Lista de nombres de archivos encontrados
+    """
+    project_path = Path(f"local/input_docs/{project_name}")
+    
+    if not project_path.exists():
+        logger.warning(f"⚠️  La carpeta {project_path} no existe")
+        return []
+    
+    documents = []
+    for item in project_path.iterdir():
+        if item.is_file():
+            documents.append(item.name)
+    
+    return sorted(documents)
 
 
 def process_project_documents_with_custom_output(processor: DocumentIntelligenceProcessor, 
                                                 project_name: str,
                                                 blob_client: BlobStorageClient) -> Dict[str, Any]:
     """
-    Procesa todos los documentos de un proyecto desde Azure Blob Storage y guarda cada uno individualmente.
+    Procesa todos los documentos de un proyecto desde carpeta local y guarda cada uno individualmente.
     
     Args:
         processor: Instancia del procesador de Document Intelligence
         project_name: Nombre del proyecto a procesar
-        blob_client: Cliente de Azure Blob Storage
+        blob_client: Cliente de Azure Blob Storage (para compatibilidad)
         
     Returns:
         Dict con resumen del procesamiento del proyecto
     """
     logger.info(f"📁 Procesando proyecto: {project_name}")
     
-    # Obtener lista de documentos del proyecto desde Blob Storage
-    all_documents = blob_client.list_documents(project_name)
+    # Obtener lista de documentos del proyecto desde carpeta local
+    all_documents = get_local_documents(project_name)
     
     if not all_documents:
         logger.info(f"📊 No se encontraron documentos en el proyecto: {project_name}")
@@ -171,11 +193,11 @@ def process_project_documents_with_custom_output(processor: DocumentIntelligence
         }
     
     # Filtrar por prefijos requeridos
-    required_prefixes = ['Auditoria', 'Desembolsos', 'Productos']
+    required_prefixes = ['INI', 'IXP', 'DEC', 'ROP', 'IFS']
     filtered_documents = []
     
     for doc_name in all_documents:
-        if any(doc_name.startswith(prefix) for prefix in required_prefixes):
+        if any(doc_name.upper().startswith(prefix) for prefix in required_prefixes):
             filtered_documents.append(doc_name)
     
     logger.info(f"📊 Documentos encontrados: {len(all_documents)} total, {len(filtered_documents)} con prefijos requeridos")
@@ -283,7 +305,7 @@ def process_document_chunking(chunking_processor: ChunkingProcessor,
     logger.info(f"📝 {document_name} requiere chunking - Generando {len(chunking_result['chunks'])} chunks")
     
     # Crear directorio para chunks
-    chunks_dir = Path("output_docs") / project_name / "chunks"
+    chunks_dir = Path("local/output_docs") / project_name / "chunks"
     chunks_dir.mkdir(parents=True, exist_ok=True)
     
     # Guardar cada chunk individualmente
@@ -315,7 +337,7 @@ def process_document_chunking(chunking_processor: ChunkingProcessor,
     
     # Eliminar el documento original de la carpeta DI después del chunking exitoso
     try:
-        original_doc_path = Path("output_docs") / project_name / "DI" / f"{document_name}.json"
+        original_doc_path = Path("local/output_docs") / project_name / "DI" / f"{document_name}.json"
         if original_doc_path.exists():
             original_doc_path.unlink()
             logger.info(f"🗑️ Documento original eliminado después del chunking: {original_doc_path.name}")
@@ -342,7 +364,7 @@ def process_project_chunking(chunking_processor: ChunkingProcessor,
     logger.info(f"📁 Procesando chunking para proyecto: {project_name}")
     
     # Buscar archivos JSON de Document Intelligence
-    di_dir = Path("output_docs") / project_name / "DI"
+    di_dir = Path("local/output_docs") / project_name / "DI"
     if not di_dir.exists():
         raise FileNotFoundError(f"Directorio DI no encontrado: {di_dir}")
     
@@ -439,6 +461,27 @@ def create_batch_job(batch_processor: OpenAIBatchProcessor, project_name: str):
 # FUNCIÓN PRINCIPAL
 # ============================================================================
 
+def get_local_projects() -> List[str]:
+    """
+    Obtiene la lista de proyectos disponibles en la carpeta local/input_docs.
+    
+    Returns:
+        List[str]: Lista de nombres de proyectos (carpetas) encontrados
+    """
+    input_docs_path = Path("local/input_docs")
+    
+    if not input_docs_path.exists():
+        logger.warning(f"⚠️  La carpeta {input_docs_path} no existe")
+        return []
+    
+    projects = []
+    for item in input_docs_path.iterdir():
+        if item.is_dir():
+            projects.append(item.name)
+    
+    return sorted(projects)
+
+
 def main():
     """
     Función principal que ejecuta todo el flujo de procesamiento.
@@ -462,17 +505,17 @@ def main():
         # Configurar cliente de Blob Storage
         blob_client = BlobStorageClient()
         
-        # Obtener lista de proyectos disponibles desde Blob Storage
-        projects = blob_client.list_projects()
+        # Obtener lista de proyectos disponibles desde carpeta local
+        projects = get_local_projects()
         logger.info(
-            f"📁 Proyectos disponibles en Blob Storage: {projects}",
+            f"📁 Proyectos disponibles en local/input_docs: {projects}",
             projects=projects,
             project_count=len(projects),
             operation_id=operation_id
         )
         
         if not projects:
-            logger.warning("⚠️  No se encontraron proyectos en el Blob Storage")
+            logger.warning("⚠️  No se encontraron proyectos en local/input_docs")
             return
         
         # Procesar cada proyecto

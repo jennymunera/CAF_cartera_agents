@@ -17,8 +17,8 @@ logger = get_logger('document_intelligence_processor')
 class DocumentIntelligenceProcessor:
     """Document processor using Azure Document Intelligence to extract and concatenate content."""
     
-    def __init__(self, endpoint: str, api_key: str, input_dir: str = "input_docs", 
-                 output_dir: str = "output_docs", auto_chunk: bool = True, max_tokens: int = 100000):
+    def __init__(self, endpoint: str, api_key: str, input_dir: str = "local/input_docs",
+                 output_dir: str = "local/output_docs", auto_chunk: bool = True, max_tokens: int = 100000):
         self.endpoint = endpoint
         self.api_key = api_key
         self.input_dir = Path(input_dir)
@@ -664,8 +664,8 @@ class DocumentIntelligenceProcessor:
         logger.info(f"Project data saved to: {project_dir}")
 
 
-def list_available_projects(input_docs_path: str = "input_docs") -> List[str]:
-    """Lists all available project folders in the input_docs directory.
+def list_available_projects(input_docs_path: str = "local/input_docs") -> List[str]:
+    """Lists all available project folders in the local/input_docs directory.
     
     Args:
         input_docs_path: Path to the input documents directory
@@ -685,8 +685,8 @@ def list_available_projects(input_docs_path: str = "input_docs") -> List[str]:
 def process_documents(project_name: str, 
                      processor_type: str = "document_intelligence",
                      auto_chunk: bool = False,
-                     input_docs_path: str = "input_docs",
-                     output_docs_path: str = "output_docs") -> Dict[str, Any]:
+                     input_docs_path: str = "local/input_docs",
+    output_docs_path: str = "local/output_docs") -> Dict[str, Any]:
     """Process documents using the specified processor.
     
     Args:
@@ -712,8 +712,8 @@ if __name__ == "__main__":
     # Example usage
     processor = DocumentIntelligenceProcessor(
         auto_chunk=True,
-        input_docs_path="input_docs",
-        output_docs_path="output_docs"
+        input_docs_path="local/input_docs",
+    output_docs_path="local/output_docs"
     )
     
     # List available projects
@@ -728,4 +728,4 @@ if __name__ == "__main__":
         logger.info(f"Processing completed. Status: {result['metadata']['processing_status']}")
         logger.info(f"Documents processed: {result['metadata']['successful_documents']}/{result['metadata']['total_documents']}")
     else:
-        logger.warning("No projects found in input_docs directory")
+        logger.warning("No projects found in local/input_docs directory")

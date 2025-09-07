@@ -7,6 +7,7 @@ from datetime import datetime
 from utils.jsonl_handler import JSONLHandler
 from schemas.validation_schemas import validate_corpus_chunk
 from utils.app_insights_logger import get_logger
+from utils.blob_storage_client import BlobStorageClient
 
 # Configure logging with Azure Application Insights
 logger = get_logger('chunking_processor')
@@ -30,6 +31,7 @@ class ChunkingProcessor:
         self.model_name = model_name
         self.generate_jsonl = generate_jsonl
         self.jsonl_handler = JSONLHandler() if generate_jsonl else None
+        self.blob_client = BlobStorageClient()
         
         # Inicializar el tokenizer
         try:
@@ -37,6 +39,36 @@ class ChunkingProcessor:
         except KeyError:
             # Fallback para modelos no reconocidos
             self.tokenizer = tiktoken.get_encoding("cl100k_base")
+    
+    def is_document_already_chunked(self, document_name: str, project_name: str) -> bool:
+        """
+        Verifica si un documento ya fue chunkeado buscando archivos chunk en la carpeta processed/chunks.
+        
+        Args:
+            document_name: Nombre del documento (con o sin extensión)
+            project_name: Nombre del proyecto
+            
+        Returns:
+            True si el documento ya fue chunkeado, False en caso contrario
+        """
+        try:
+            # Obtener el nombre base del documento sin extensión
+            doc_stem = Path(document_name).stem
+            
+            # Los chunks se guardan con formato {NOMBRE_DOCUMENTO}_chunk_000.json
+            # Buscar el primer chunk del documento
+            chunk_filename = f"{doc_stem}_chunk_000.json"
+            
+            if self.blob_client.document_exists_in_processed(project_name, "chunks", chunk_filename):
+                logger.info(f"Document already chunked: {document_name} (checked via {chunk_filename})")
+                return True
+            
+            logger.info(f"Document not chunked yet: {document_name} (checked {chunk_filename})")
+            return False
+            
+        except Exception as e:
+            logger.warning(f"Error checking if document {document_name} was chunked: {str(e)}")
+            return False  # Si no podemos verificar, asumimos que necesita procesamiento
     
     def count_tokens(self, text: str) -> int:
         """Cuenta el número de tokens en un texto."""
@@ -369,6 +401,114 @@ class ChunkingProcessor:
             logger.info(f"  {file}")
         
         return saved_files
+
+    def save_chunks_to_blob(self, chunking_result: Dict[str, Any], project_name: str) -> List[str]:
+        """Guarda los chunks en blob storage como archivos JSON individuales, similar a la implementación local."""
+        try:
+            blob_client = BlobStorageClient()
+            chunks = chunking_result['chunks']
+            saved_files = []
+            
+            for chunk in chunks:
+                # Crear datos del chunk en formato JSON (similar a la implementación local)
+                chunk_data = {
+                    'document_name': f"{project_name}_concatenated",
+                    'chunk_index': chunk['index'],
+                    'content': chunk['content'],
+                    'tokens': chunk['tokens'],
+                    'sections_range': chunk['sections_range'],
+                    'metadata': {
+                        'created_at': datetime.now().isoformat(),
+                        'project_name': project_name,
+                        'total_chunks': len(chunks),
+                        'chunking_strategy': chunking_result.get('chunking_strategy', 'unknown')
+                    }
+                }
+                
+                # Guardar chunk como archivo JSON en blob storage
+                chunk_filename = f"{project_name}_chunk_{chunk['index']:03d}.json"
+                chunk_blob_path = f"basedocuments/{project_name}/processed/chunks/{chunk_filename}"
+                
+                chunk_content = json.dumps(chunk_data, indent=2, ensure_ascii=False)
+                blob_client.upload_blob(chunk_blob_path, chunk_content)
+                saved_files.append(chunk_blob_path)
+                logger.info(f"Chunk JSON saved to blob: {chunk_blob_path}")
+            
+            # Guardar metadatos del chunking
+            metadata_filename = f"{project_name}_chunking_metadata.json"
+            metadata_path = f"basedocuments/{project_name}/processed/chunks/{metadata_filename}"
+            metadata_content = json.dumps(chunking_result, indent=2, ensure_ascii=False)
+            blob_client.upload_blob(metadata_path, metadata_content)
+            saved_files.append(metadata_path)
+            
+            logger.info(f"Chunks saved to blob storage:")
+            for file in saved_files:
+                logger.info(f"  {file}")
+            
+            return saved_files
+            
+        except Exception as e:
+            logger.error(f"Error saving chunks to blob storage: {str(e)}")
+            return []
+    
+    def save_chunks_to_blob_with_doc_name(self, chunking_result: Dict[str, Any], project_name: str, document_name: str) -> List[str]:
+        """Guarda los chunks en blob storage con el nombre del documento original incluido."""
+        try:
+            blob_client = BlobStorageClient()
+            chunks = chunking_result['chunks']
+            saved_files = []
+            
+            # Extraer el nombre base del documento (sin extensión)
+            doc_stem = Path(document_name).stem
+            
+            for chunk in chunks:
+                # Crear datos del chunk en formato JSON con el nombre del documento original
+                chunk_data = {
+                    'document_name': document_name,
+                    'chunk_index': chunk['index'],
+                    'content': chunk['content'],
+                    'tokens': chunk['tokens'],
+                    'sections_range': chunk['sections_range'],
+                    'metadata': {
+                        'created_at': datetime.now().isoformat(),
+                        'project_name': project_name,
+                        'original_document': document_name,
+                        'total_chunks': len(chunks),
+                        'chunking_strategy': chunking_result.get('chunking_strategy', 'unknown')
+                    }
+                }
+                
+                # Crear nombre del chunk con el nombre del documento original
+                chunk_filename = f"{doc_stem}_chunk_{chunk['index']:03d}.json"
+                chunk_blob_path = f"basedocuments/{project_name}/processed/chunks/{chunk_filename}"
+                
+                chunk_content = json.dumps(chunk_data, indent=2, ensure_ascii=False)
+                blob_client.upload_blob(chunk_blob_path, chunk_content)
+                saved_files.append(chunk_blob_path)
+                logger.info(f"Chunk JSON saved to blob: {chunk_blob_path}")
+            
+            # Guardar metadatos del chunking específicos para este documento
+            metadata_filename = f"{doc_stem}_chunking_metadata.json"
+            metadata_path = f"basedocuments/{project_name}/processed/chunks/{metadata_filename}"
+            
+            # Agregar información del documento original a los metadatos
+            enhanced_metadata = chunking_result.copy()
+            enhanced_metadata['original_document'] = document_name
+            enhanced_metadata['document_stem'] = doc_stem
+            
+            metadata_content = json.dumps(enhanced_metadata, indent=2, ensure_ascii=False)
+            blob_client.upload_blob(metadata_path, metadata_content)
+            saved_files.append(metadata_path)
+            
+            logger.info(f"Document {document_name} chunks saved to blob storage:")
+            for file in saved_files:
+                logger.info(f"  {file}")
+            
+            return saved_files
+            
+        except Exception as e:
+            logger.error(f"Error saving chunks for document {document_name} to blob storage: {str(e)}")
+            return []
 
 
 def chunk_document_content(content: str, project_name: str, max_tokens: int = 100000, generate_jsonl: bool = True) -> Dict[str, Any]:

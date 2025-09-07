@@ -27,8 +27,6 @@ def send_test_message():
     # Crear mensaje de prueba
     test_message = {
         "project_name": "CFA009660",
-        "document_name": "IXP-CFA009660-2021--Informe Auditoría 2021.pdf",
-        "document_type": "Auditoria",  # Puede ser: Auditoria, Desembolsos, Productos
         "queue_type": "processing"
     }
     

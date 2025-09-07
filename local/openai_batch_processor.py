@@ -34,9 +34,9 @@ class OpenAIBatchProcessor:
         try:
             # Obtener configuración del .env
             api_key = os.getenv('AZURE_OPENAI_API_KEY')
-            endpoint = os.getenv('AZURE_OPENAI_ENDPOINT', 'https://OpenAI-Tech2.openai.azure.com/')
+            endpoint = os.getenv('AZURE_OPENAI_ENDPOINT', 'https://oai-poc-idatafactory-cr.openai.azure.com/')
             api_version = os.getenv('AZURE_OPENAI_API_VERSION', '2025-04-01-preview')
-            self.deployment_name = os.getenv('AZURE_OPENAI_DEPLOYMENT_NAME', 'o4-mini-dadmi-batch')
+            self.deployment_name = os.getenv('AZURE_OPENAI_DEPLOYMENT_NAME', 'gpt-4o-2')
             
             if not api_key:
                 raise ValueError("AZURE_OPENAI_API_KEY no encontrada en variables de entorno")
@@ -59,9 +59,9 @@ class OpenAIBatchProcessor:
         """Carga los prompts desde archivos de texto"""
         prompts = {}
         prompt_files = {
-            'auditoria': 'prompt Auditoria.txt',
-            'desembolsos': 'prompt Desembolsos.txt',
-            'productos': 'prompt Productos.txt'
+            'auditoria': 'local/prompt Auditoria.txt',
+            'desembolsos': 'local/prompt Desembolsos.txt',
+            'productos': 'local/prompt Productos.txt'
         }
         
         for key, filename in prompt_files.items():
@@ -179,7 +179,7 @@ class OpenAIBatchProcessor:
         Returns:
             Dict con información del batch job creado
         """
-        project_path = os.path.join("output_docs", project_name)
+        project_path = os.path.join("local", "output_docs", project_name)
         self.logger.info(f"🚀 Creando batch job para proyecto: {project_name}")
         
         batch_requests = []
@@ -206,7 +206,7 @@ class OpenAIBatchProcessor:
                 raise ValueError(f"No se encontraron documentos para procesar en {project_path}")
             
             # Crear directorio para logs de OpenAI
-            openai_logs_dir = os.path.join("output_docs", project_name, "openai_logs")
+            openai_logs_dir = os.path.join("local", "output_docs", project_name, "openai_logs")
             os.makedirs(openai_logs_dir, exist_ok=True)
             
             # Crear archivo JSONL (formato requerido por Azure Batch API)

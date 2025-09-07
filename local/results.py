@@ -34,7 +34,7 @@ class BatchResultsProcessor:
         """Configura el cliente de Azure OpenAI usando variables de entorno."""
         try:
             api_key = os.getenv('AZURE_OPENAI_API_KEY')
-            endpoint = os.getenv('AZURE_OPENAI_ENDPOINT', 'https://OpenAI-Tech2.openai.azure.com/')
+            endpoint = os.getenv('AZURE_OPENAI_ENDPOINT', 'https://oai-poc-idatafactory-cr.openai.azure.com/')
             api_version = os.getenv('AZURE_OPENAI_API_VERSION', '2025-03-01-preview')
             
             if not api_key:
@@ -201,7 +201,7 @@ class BatchResultsProcessor:
             results_content = file_response.read().decode('utf-8')
             
             # Crear directorio para logs de OpenAI
-            openai_logs_dir = os.path.join("output_docs", project_name, "openai_logs")
+            openai_logs_dir = os.path.join("local", "output_docs", project_name, "openai_logs")
             os.makedirs(openai_logs_dir, exist_ok=True)
             
             # Guardar archivo de resultados raw
@@ -241,7 +241,7 @@ class BatchResultsProcessor:
             error_content = error_response.read().decode('utf-8')
             
             # Crear directorio para logs de OpenAI
-            openai_logs_dir = os.path.join("output_docs", project_name, "openai_logs")
+            openai_logs_dir = os.path.join("local", "output_docs", project_name, "openai_logs")
             os.makedirs(openai_logs_dir, exist_ok=True)
             
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -273,7 +273,7 @@ class BatchResultsProcessor:
         """
         try:
             # Crear directorio para logs de OpenAI
-            openai_logs_dir = os.path.join("output_docs", project_name, "openai_logs")
+            openai_logs_dir = os.path.join("local", "output_docs", project_name, "openai_logs")
             os.makedirs(openai_logs_dir, exist_ok=True)
             
             results_by_document = {}
@@ -319,7 +319,7 @@ class BatchResultsProcessor:
                 json.dump(results_by_prompt, f, indent=2, ensure_ascii=False)
             
             # Crear carpeta de salida para archivos separados por prompt
-            output_dir = Path(f"output_docs/{project_name}/results")
+            output_dir = Path(f"local/output_docs/{project_name}/results")
             output_dir.mkdir(parents=True, exist_ok=True)
             
             # Extraer y guardar contenido por tipo de prompt

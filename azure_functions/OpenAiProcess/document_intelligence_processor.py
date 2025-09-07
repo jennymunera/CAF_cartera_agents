@@ -9,6 +9,7 @@ from azure.ai.documentintelligence import DocumentIntelligenceClient
 from azure.core.credentials import AzureKeyCredential
 from azure.core.exceptions import HttpResponseError
 from chunking_processor import ChunkingProcessor
+from utils.blob_storage_client import BlobStorageClient
 from utils.app_insights_logger import get_logger
 
 # Configure logging with Azure Application Insights
@@ -17,12 +18,9 @@ logger = get_logger('document_intelligence_processor')
 class DocumentIntelligenceProcessor:
     """Document processor using Azure Document Intelligence to extract and concatenate content."""
     
-    def __init__(self, endpoint: str, api_key: str, input_dir: str = "input_docs", 
-                 output_dir: str = "output_docs", auto_chunk: bool = True, max_tokens: int = 100000):
+    def __init__(self, endpoint: str, api_key: str, auto_chunk: bool = True, max_tokens: int = 100000):
         self.endpoint = endpoint
         self.api_key = api_key
-        self.input_dir = Path(input_dir)
-        self.output_dir = Path(output_dir)
         self.auto_chunk = auto_chunk
         self.max_tokens = max_tokens
         
@@ -32,58 +30,45 @@ class DocumentIntelligenceProcessor:
             credential=AzureKeyCredential(self.api_key)
         )
         
-        # Create directories if they don't exist
-        self.input_dir.mkdir(exist_ok=True)
-        self.output_dir.mkdir(exist_ok=True)
+        # Initialize blob storage client
+        self.blob_client = BlobStorageClient()
         
         # Initialize chunking processor if auto_chunk is enabled
         if self.auto_chunk:
             self.chunking_processor = ChunkingProcessor(max_tokens=self.max_tokens, generate_jsonl=True)
     
-    def _is_document_already_chunked(self, file_path: Path, project_name: str) -> bool:
+    def _is_document_already_chunked(self, document_name: str, project_name: str) -> bool:
         """Check if a document has already been chunked by looking for chunk files in chunks folder.
         
         Args:
-            file_path: Path to the document file
+            document_name: Name of the document file
             project_name: Name of the project
             
         Returns:
             bool: True if document has already been chunked, False otherwise
         """
         try:
-            # Check if chunk files exist in chunks folder
-            doc_stem = file_path.stem  # filename without extension
-            chunks_dir = self.output_dir / project_name / "chunks"
+            # Check if chunk files exist in processed/chunks folder
+            doc_stem = Path(document_name).stem  # filename without extension
             
-            if chunks_dir.exists():
-                # Look for any chunk files that start with the document name
-                chunk_pattern = f"{doc_stem}_chunk_*.json"
-                chunk_files = list(chunks_dir.glob(chunk_pattern))
-                
-                if chunk_files:
-                    # Verify at least one chunk file has valid content
-                    for chunk_file in chunk_files:
-                        try:
-                            if chunk_file.stat().st_size > 50:  # At least 50 bytes
-                                with open(chunk_file, 'r', encoding='utf-8') as f:
-                                    data = json.load(f)
-                                    if data.get('chunk_content') or data.get('content'):
-                                        logger.info(f"Document already chunked: {file_path.name} -> {len(chunk_files)} chunks found")
-                                        return True
-                        except (json.JSONDecodeError, KeyError, OSError):
-                            continue
+            # Try to find any chunk file for this document
+            chunk_filename = f"{doc_stem}_chunk_1.json"  # Check for first chunk
+            
+            if self.blob_client.document_exists_in_processed(project_name, "chunks", chunk_filename):
+                logger.info(f"Document already chunked: {document_name}")
+                return True
             
             return False
             
         except Exception as e:
-            logger.warning(f"Error checking if document {file_path.name} was chunked: {str(e)}")
+            logger.warning(f"Error checking if document {document_name} was chunked: {str(e)}")
             return False  # If we can't check, assume it needs processing
     
-    def _is_document_already_processed(self, file_path: Path, project_name: str) -> bool:
+    def _is_document_already_processed(self, document_name: str, project_name: str) -> bool:
         """Check if a document has already been processed by looking for output files in DI folder or chunks folder.
         
         Args:
-            file_path: Path to the document file
+            document_name: Name of the document file
             project_name: Name of the project
             
         Returns:
@@ -91,60 +76,52 @@ class DocumentIntelligenceProcessor:
         """
         try:
             # First check if document has been processed (DI folder)
-            doc_stem = file_path.stem  # filename without extension
-            doc_json_file = self.output_dir / project_name / "DI" / f"{doc_stem}.json"
+            doc_stem = Path(document_name).stem  # filename without extension
+            doc_json_filename = f"{doc_stem}.json"
             
-            if doc_json_file.exists():
-                # Additional check: verify the file is not empty and has valid content
-                if doc_json_file.stat().st_size > 100:  # At least 100 bytes
-                    # Verify it's a valid JSON with content
-                    try:
-                        with open(doc_json_file, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                            # Check if it has content and wasn't an error
-                            # processing_status is in metadata section
-                            metadata = data.get('metadata', {})
-                            if metadata.get('processing_status') == 'success' and data.get('content'):
-                                logger.info(f"Document already processed (DI): {file_path.name} -> {doc_json_file.name}")
-                                return True
-                    except (json.JSONDecodeError, KeyError):
-                        logger.warning(f"Invalid JSON file found, will reprocess: {doc_json_file}")
-                        # Continue to check chunks
+            if self.blob_client.document_exists_in_processed(project_name, "DI", doc_json_filename):
+                # Verify it's a valid JSON with content
+                try:
+                    data = self.blob_client.load_processed_document(project_name, "DI", doc_json_filename)
+                    # Check if it has content and wasn't an error
+                    metadata = data.get('metadata', {})
+                    if metadata.get('processing_status') == 'success' and data.get('content'):
+                        logger.info(f"Document already processed (DI): {document_name}")
+                        return True
+                except (json.JSONDecodeError, KeyError, FileNotFoundError):
+                    logger.warning(f"Invalid JSON file found, will reprocess: {doc_json_filename}")
+                    # Continue to check chunks
             
             # Also check if document has been chunked (chunks folder)
-            if self._is_document_already_chunked(file_path, project_name):
+            if self._is_document_already_chunked(document_name, project_name):
                 return True
             
             return False
             
         except Exception as e:
-            logger.warning(f"Error checking if document {file_path.name} was processed: {str(e)}")
+            logger.warning(f"Error checking if document {document_name} was processed: {str(e)}")
             return False  # If we can't check, assume it needs processing
     
-    def process_single_document(self, file_path, model_id: str = "prebuilt-layout") -> Dict[str, Any]:
+    def process_single_document(self, project_name: str, document_name: str, model_id: str = "prebuilt-layout") -> Dict[str, Any]:
         """Processes a single document and extracts its content.
         
         Args:
-            file_path: Path to the file to process (string or Path object)
+            project_name: Name of the project
+            document_name: Name of the document to process
             model_id: Document Intelligence model to use
             
         Returns:
             Dict with document data and metadata
         """
         try:
-            # Convert to Path object if it's a string
-            if isinstance(file_path, str):
-                file_path = Path(file_path)
-                
-            logger.info(f"Processing document with Document Intelligence: {file_path.name}")
+            logger.info(f"Processing document with Document Intelligence: {document_name}")
             
-            # Read file
-            with open(file_path, 'rb') as f:
-                document_bytes = f.read()
+            # Download document from blob storage
+            document_bytes = self.blob_client.download_raw_document(project_name, document_name)
             
             # Analyze document - using recommended approach for v4.0 with direct markdown output
             # For .docx files, don't specify content_type for automatic detection
-            if file_path.suffix.lower() == '.docx':
+            if Path(document_name).suffix.lower() == '.docx':
                 poller = self.client.begin_analyze_document(
                     model_id=model_id,
                     body=document_bytes,
@@ -165,8 +142,8 @@ class DocumentIntelligenceProcessor:
             
             # Extract metadata from Document Intelligence response
             metadata = {
-                "filename": file_path.name,
-                "file_size": file_path.stat().st_size,
+                "filename": document_name,
+                "file_size": len(document_bytes),
                 "content_length": len(markdown_content),
                 "processing_status": "success",
                 "pages": len(result.pages) if result.pages else 0,
@@ -175,29 +152,29 @@ class DocumentIntelligenceProcessor:
                 "confidence_score": self._calculate_average_confidence(result)
             }
             
-            logger.info(f"Document processed successfully: {file_path.name}")
+            logger.info(f"Document processed successfully: {document_name}")
             logger.info(f"Content length: {len(markdown_content)} characters")
             logger.info(f"Pages: {metadata['pages']}")
             logger.info(f"Tables found: {metadata['tables_found']}")
             logger.info(f"Images found: {metadata['images_found']}")
             
             return {
-                "filename": file_path.name,
+                "filename": document_name,
                 "content": markdown_content,
                 "json_data": self._extract_structured_data(result),
                 "metadata": metadata
             }
             
         except Exception as e:
-            logger.error(f"Error processing {file_path.name}: {str(e)}")
-            logger.error(f"File extension: {file_path.suffix}")
+            logger.error(f"Error processing {document_name}: {str(e)}")
+            logger.error(f"File extension: {Path(document_name).suffix}")
             logger.error(f"Full error details: {type(e).__name__}: {str(e)}")
             return {
-                "filename": file_path.name if hasattr(file_path, 'name') else str(file_path),
+                "filename": document_name,
                 "content": "",
                 "json_data": {},
                 "metadata": {
-                    "filename": file_path.name if hasattr(file_path, 'name') else str(file_path),
+                    "filename": document_name,
                     "file_size": 0,
                     "content_length": 0,
                     "processing_status": "error",
@@ -427,19 +404,22 @@ class DocumentIntelligenceProcessor:
         logger.info(f"Result saved to: {output_path}")
     
     def process_project_documents(self, project_name: str, model_id: str = "prebuilt-layout") -> Dict[str, Any]:
-        """Processes all documents from a specific project.
+        """Processes all documents from a specific project using blob storage.
         
         Args:
-            project_name: Project name (folder inside input_docs)
+            project_name: Project name
             model_id: Document Intelligence model to use
             
         Returns:
             Dict with all processed and concatenated documents
         """
-        project_path = self.input_dir / project_name
+        logger.info(f"Starting project processing with Document Intelligence: {project_name}")
         
-        if not project_path.exists():
-            logger.warning(f"Project folder '{project_name}' does not exist in {self.input_dir}")
+        # Get list of raw documents from blob storage (documents/basedocuments/{project}/raw/)
+        try:
+            raw_documents = self.blob_client.list_raw_documents(project_name)
+        except Exception as e:
+            logger.error(f"Error listing raw documents for project {project_name}: {str(e)}")
             return {
                 "project_name": project_name,
                 "documents": [],
@@ -448,43 +428,47 @@ class DocumentIntelligenceProcessor:
                     "total_documents": 0,
                     "successful_documents": 0,
                     "failed_documents": 0,
-                    "processing_status": "project_not_found"
+                    "processing_status": "error_listing_documents"
                 }
             }
         
-        logger.info(f"Starting project processing with Document Intelligence: {project_name}")
-        
-        # Search for supported document files in the project folder
-        # Based on Azure Document Intelligence v4.0 Layout model supported formats
-        supported_extensions = ['*.pdf', '*.docx', '*.xlsx', '*.pptx', '*.html', '*.csv', '*.png', '*.jpeg', '*.jpg', '*.tiff', '*.bmp', '*.heif']
-        all_document_files = []
-        for ext in supported_extensions:
-            all_document_files.extend(project_path.glob(ext))
+        if not raw_documents:
+            logger.warning(f"No raw documents found for project {project_name}")
+            return {
+                "project_name": project_name,
+                "documents": [],
+                "concatenated_content": "",
+                "metadata": {
+                    "total_documents": 0,
+                    "successful_documents": 0,
+                    "failed_documents": 0,
+                    "processing_status": "no_documents_found"
+                }
+            }
         
         # Filter documents by required prefixes (INI, IXP, DEC, ROP, IFS)
         required_prefixes = ['INI', 'IXP', 'DEC', 'ROP', 'IFS']
         document_files = []
         filtered_out_files = []
         
-        for file_path in all_document_files:
-            filename = file_path.name.upper()  # Convert to uppercase for comparison
-            if any(filename.startswith(prefix) for prefix in required_prefixes):
-                document_files.append(file_path)
+        for document_name in raw_documents:
+            filename_upper = document_name.upper()  # Convert to uppercase for comparison
+            if any(filename_upper.startswith(prefix) for prefix in required_prefixes):
+                document_files.append(document_name)
             else:
-                filtered_out_files.append(file_path)
+                filtered_out_files.append(document_name)
         
-        logger.info(f"Found {len(all_document_files)} total document files")
+        logger.info(f"Found {len(raw_documents)} total document files")
         logger.info(f"Filtered to {len(document_files)} files with required prefixes (INI, IXP, DEC, ROP, IFS)")
         if filtered_out_files:
             logger.info(f"Excluded {len(filtered_out_files)} files without required prefixes:")
             for excluded_file in filtered_out_files[:5]:  # Show first 5 excluded files
-                logger.info(f"   - {excluded_file.name}")
+                logger.info(f"   - {excluded_file}")
             if len(filtered_out_files) > 5:
                 logger.info(f"   ... and {len(filtered_out_files) - 5} more files")
         
         if not document_files:
-            logger.warning(f"No document files found with required prefixes (INI, IXP, DEC, ROP, IFS) in {project_path}")
-            logger.info(f"Supported extensions: {', '.join(supported_extensions)}")
+            logger.warning(f"No document files found with required prefixes (INI, IXP, DEC, ROP, IFS) for project {project_name}")
             return {
                 "project_name": project_name,
                 "documents": [],
@@ -505,18 +489,18 @@ class DocumentIntelligenceProcessor:
         failed_count = 0
         skipped_count = 0
         
-        for document_file in document_files:
+        for document_name in document_files:
             # Check if document was already processed
-            if self._is_document_already_processed(document_file, project_name):
+            if self._is_document_already_processed(document_name, project_name):
                 skipped_count += 1
                 # Create a mock successful result for already processed documents
                 doc_data = {
-                    "filename": document_file.name,
+                    "filename": document_name,
                     "content": "[Document already processed - content available in output files]",
                     "json_data": {},
                     "metadata": {
-                        "filename": document_file.name,
-                        "file_size": document_file.stat().st_size,
+                        "filename": document_name,
+                        "file_size": 0,  # Size will be determined from blob storage if needed
                         "content_length": 0,
                         "processing_status": "skipped_already_processed",
                         "pages": 0,
@@ -529,7 +513,7 @@ class DocumentIntelligenceProcessor:
                 continue
             
             # Process new document
-            doc_data = self.process_single_document(document_file, model_id)
+            doc_data = self.process_single_document(project_name, document_name, model_id)
             processed_documents.append(doc_data)
             
             if doc_data["metadata"]["processing_status"] == "success":
@@ -586,41 +570,37 @@ class DocumentIntelligenceProcessor:
         return results
     
     def save_processed_project(self, project_data: Dict[str, Any]) -> None:
-        """Saves processed project data to output directory.
+        """Saves processed project data to blob storage.
         
         Args:
             project_data: Dictionary containing project processing results
         """
         project_name = project_data["project_name"]
         
-        # Create project folder structure
-        project_dir = self.output_dir / project_name
-        docs_dir = project_dir / "docs"
-        agents_output_dir = project_dir / "agents_output"
-        
-        # Create directories if they don't exist
-        project_dir.mkdir(exist_ok=True)
-        docs_dir.mkdir(exist_ok=True)
-        agents_output_dir.mkdir(exist_ok=True)
-        
-        # Save individual document markdown files in docs folder
-        for doc in project_data["documents"]:
-            if doc["metadata"]["processing_status"] == "success":
-                doc_md_file = docs_dir / f"{Path(doc['filename']).stem}.md"
-                with open(doc_md_file, 'w', encoding='utf-8') as f:
-                    f.write(f"# {doc['filename']}\n\n")
-                    f.write(doc["content"])
-                logger.info(f"Individual document saved: {doc_md_file}")
-        
-        # Save concatenated content as markdown in docs folder
-        markdown_file = docs_dir / f"{project_name}_concatenated.md"
-        with open(markdown_file, 'w', encoding='utf-8') as f:
-            f.write(project_data["concatenated_content"])
-        
-        # Save metadata as JSON in docs folder
-        json_file = docs_dir / f"{project_name}_metadata.json"
-        with open(json_file, 'w', encoding='utf-8') as f:
-            json.dump({
+        try:
+            # Save individual document results to caf-documents/basedocuments/{project}/processed/DI/
+            for doc in project_data["documents"]:
+                if doc["metadata"]["processing_status"] == "success":
+                    # Save processed document content and metadata
+                    # Create combined content with metadata
+                    combined_content = {
+                        "content": doc["content"],
+                        "metadata": doc["metadata"],
+                        "json_data": doc["json_data"]
+                    }
+                    
+                    # Save as JSON file
+                    json_filename = doc["filename"].replace(".pdf", ".json").replace(".docx", ".json")
+                    self.blob_client.save_processed_document(
+                        project_name=project_name,
+                        subfolder="DI",
+                        document_name=json_filename,
+                        content=combined_content
+                    )
+                    logger.info(f"Individual document saved to blob storage: {doc['filename']}")
+            
+            # Save project metadata
+            metadata_content = json.dumps({
                 "project_name": project_name,
                 "processor_type": "Azure Document Intelligence",
                 "metadata": project_data["metadata"],
@@ -628,20 +608,20 @@ class DocumentIntelligenceProcessor:
                     "filename": doc["filename"],
                     "metadata": doc["metadata"]
                 } for doc in project_data["documents"]]
-            }, f, indent=2, ensure_ascii=False)
-        
-        # Save individual document JSON data in docs folder
-        for doc in project_data["documents"]:
-            if doc["json_data"]:
-                doc_json_file = docs_dir / f"{Path(doc['filename']).stem}_document_intelligence.json"
-                with open(doc_json_file, 'w', encoding='utf-8') as f:
-                    json.dump(doc["json_data"], f, indent=2, ensure_ascii=False)
-        
-        logger.info(f"Files saved in organized structure:")
-        logger.info(f"   Project dir: {project_dir}")
-        logger.info(f"   Content: {markdown_file}")
-        logger.info(f"   Metadata: {json_file}")
-        logger.info(f"   Individual docs: {len([d for d in project_data['documents'] if d['metadata']['processing_status'] == 'success'])} files")
+            }, indent=2, ensure_ascii=False)
+            
+            # Upload project metadata to blob storage
+            metadata_blob_path = f"caf-documents/basedocuments/{project_name}/processed/DI/{project_name}_metadata.json"
+            self.blob_client.upload_blob(metadata_blob_path, metadata_content, "application/json")
+            
+            logger.info(f"Project data saved to blob storage:")
+            logger.info(f"   Project: {project_name}")
+            logger.info(f"   Location: caf-documents/basedocuments/{project_name}/processed/DI/")
+            logger.info(f"   Individual docs: {len([d for d in project_data['documents'] if d['metadata']['processing_status'] == 'success'])} files")
+            
+        except Exception as e:
+            logger.error(f"Error saving processed project data to blob storage: {str(e)}")
+            raise
         
         # Apply chunking if enabled
         if self.auto_chunk and self.chunking_processor:
@@ -653,15 +633,16 @@ class DocumentIntelligenceProcessor:
             
             if chunking_result['requires_chunking']:
                 logger.info(f"Document requires chunking. Creating {len(chunking_result['chunks'])} chunks...")
-                saved_files = self.chunking_processor.save_chunks(chunking_result, str(self.output_dir))
+                # Save chunks to blob storage instead of local directory
+                saved_files = self.chunking_processor.save_chunks_to_blob(chunking_result, project_name)
                 project_data["chunking_result"] = chunking_result
                 project_data["chunking_result"]["saved_files"] = saved_files
-                logger.info(f"Chunks saved: {len(saved_files)} files")
+                logger.info(f"Chunks saved to blob storage: {len(saved_files)} files")
             else:
                 logger.info("Document within token limit. No chunking required.")
                 project_data["chunking_result"] = chunking_result
         
-        logger.info(f"Project data saved to: {project_dir}")
+        logger.info(f"Project data saved to blob storage for project: {project_name}")
 
 
 def list_available_projects(input_docs_path: str = "input_docs") -> List[str]:

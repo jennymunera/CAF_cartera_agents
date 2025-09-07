@@ -280,11 +280,11 @@ class ChunkingProcessor:
             'overlap_tokens': self.overlap_tokens
         }
     
-    def save_chunks(self, chunking_result: Dict[str, Any], output_dir: str = "output_docs") -> List[str]:
+    def save_chunks(self, chunking_result: Dict[str, Any], output_dir: str = "local/output_docs") -> List[str]:
         """Guarda los chunks en archivos separados y genera un archivo JSONL individual por cada chunk."""
         project_name = chunking_result['project_name']
         
-        # Crear estructura de carpetas: output_docs/{project_name}/docs/ y agents_output/
+        # Crear estructura de carpetas: local/output_docs/{project_name}/docs/ y agents_output/
         project_path = Path(output_dir) / project_name
         docs_path = project_path / "docs"
         agents_output_path = project_path / "agents_output"
@@ -383,7 +383,7 @@ if __name__ == "__main__":
     logger.info("="*40)
     
     # Cargar un documento de ejemplo
-    example_file = "output_docs/CFA009660_concatenated.md"
+    example_file = "local/output_docs/CFA009660_concatenated.md"
     if Path(example_file).exists():
         with open(example_file, 'r', encoding='utf-8') as f:
             content = f.read()

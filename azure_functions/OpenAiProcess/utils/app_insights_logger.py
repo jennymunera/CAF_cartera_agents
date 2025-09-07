@@ -94,7 +94,7 @@ class AppInsightsLogger:
                  max_bytes: int = 10 * 1024 * 1024,  # 10MB
                  backup_count: int = 5):
         """
-        Inicializa el logger de Application Insights.
+        Inicializa el logger con configuración para Application Insights.
         
         Args:
             name: Nombre del logger
@@ -104,8 +104,17 @@ class AppInsightsLogger:
             backup_count: Número de archivos de backup a mantener
         """
         self.name = name
-        self.log_dir = Path(log_dir)
-        self.log_dir.mkdir(exist_ok=True)
+        
+        # Detectar si estamos en Azure Functions (sistema de archivos de solo lectura)
+        self.is_azure_functions = os.environ.get('AZURE_FUNCTIONS_ENVIRONMENT') is not None or \
+                                 os.environ.get('WEBSITE_SITE_NAME') is not None
+        
+        if not self.is_azure_functions:
+            # Solo crear directorio de logs en entorno local
+            self.log_dir = Path(log_dir)
+            self.log_dir.mkdir(exist_ok=True)
+        else:
+            self.log_dir = None
         
         # Crear logger
         self.logger = logging.getLogger(name)
@@ -123,23 +132,22 @@ class AppInsightsLogger:
             max_bytes: Tamaño máximo del archivo antes de rotar
             backup_count: Número de archivos de backup
         """
-        # Handler para archivo con rotación
-        log_file = self.log_dir / f"{self.name}.log"
-        file_handler = logging.handlers.RotatingFileHandler(
-            log_file,
-            maxBytes=max_bytes,
-            backupCount=backup_count,
-            encoding='utf-8'
-        )
-        file_handler.setFormatter(AppInsightsFormatter())
-        
-        # Handler para consola (opcional, para desarrollo)
+        # Handler para consola (siempre disponible)
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(AppInsightsFormatter())
-        
-        # Agregar handlers
-        self.logger.addHandler(file_handler)
         self.logger.addHandler(console_handler)
+        
+        # Handler para archivo solo en entorno local (no Azure Functions)
+        if not self.is_azure_functions and self.log_dir is not None:
+            log_file = self.log_dir / f"{self.name}.log"
+            file_handler = logging.handlers.RotatingFileHandler(
+                log_file,
+                maxBytes=max_bytes,
+                backupCount=backup_count,
+                encoding='utf-8'
+            )
+            file_handler.setFormatter(AppInsightsFormatter())
+            self.logger.addHandler(file_handler)
     
     def log_operation_start(self, 
                            operation_name: str, 
