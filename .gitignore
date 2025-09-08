@@ -216,3 +216,14 @@ docs/build/
 # Local configuration overrides
 config.local.json
 settings.local.json
+
+# Azure Functions specific
+local.settings.json
+*.zip
+logs/
+.python_packages/
+.venv*/
+
+# Test files and outputs
+tests/output/
+tests/logs/
