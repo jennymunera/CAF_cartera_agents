@@ -581,3 +581,27 @@ class BlobStorageClient:
                 logger.info(f"Archivo temporal eliminado: {temp_path}")
         except Exception as e:
             logger.warning(f"Error eliminando archivo temporal {temp_path}: {str(e)}")
+    
+    def list_blobs_with_prefix(self, prefix: str) -> List[str]:
+        """
+        Lista todos los blobs que comienzan con el prefijo especificado.
+        
+        Args:
+            prefix: Prefijo para filtrar los blobs
+            
+        Returns:
+            Lista de nombres de blobs que coinciden con el prefijo
+        """
+        try:
+            blob_list = []
+            blobs = self.container_client.list_blobs(name_starts_with=prefix)
+            
+            for blob in blobs:
+                blob_list.append(blob.name)
+            
+            logger.info(f"Encontrados {len(blob_list)} blobs con prefijo '{prefix}'")
+            return blob_list
+            
+        except Exception as e:
+            logger.error(f"Error listando blobs con prefijo '{prefix}': {str(e)}")
+            return []
