@@ -168,164 +168,348 @@ graph TD
    - AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT, AZURE_DOCUMENT_INTELLIGENCE_KEY.
    - APPLICATIONINSIGHTS_CONNECTION_STRING para logging.
 
-## Estructura del Proyecto
-- **azure_functions/**: Funciones de Azure para procesamiento en la nube.
-  - **OpenAiProcess/**: Procesamiento inicial y envío a OpenAI.
-    - `__init__.py`: Función principal con trigger de Service Bus
-    - `openai_batch_processor.py`: Lógica de filtrado por prefijos y batch processing
-    - `chunking_processor.py`: División de documentos en chunks
-    - `document_intelligence_processor.py`: Integración con Azure Document Intelligence
-    - `utils/`: Utilidades específicas (blob_storage_client.py, app_insights_logger.py)
-    - `schemas/`: Esquemas de validación
-  - **PoolingProcess/**: Verificación periódica de batches.
-  - **tests/**: Scripts de prueba y verificación.
-    - `check_documents.py`: Verificación de documentos en Blob Storage
-    - `send_test_message.py`: Envío de mensajes de prueba a Service Bus
-    - `monitor_function_logs.py`: Monitoreo de logs en tiempo real
-- **local/**: Scripts para ejecución local.
-  - **utils/**: app_insights_logger.py, blob_storage_client.py, jsonl_handler.py.
-  - process_and_submit_batch.py, openai_batch_processor.py, document_intelligence_processor.py.
-- **prompts/**: Prompts JSON para diferentes tipos de documentos.
-- **tests/**: Scripts de prueba como send_test_message_simple.py.
-- **logs/**: Directorio para logs locales.
-- **check_blob_content.py**: Script para verificar contenido de blobs.
-- **README.md**, **.env.example**, **requirements.txt**: Documentación y configuración.
+## Estructura del repositorio (detallada)
 
-## Uso
+Árbol de directorios principal y propósito de cada elemento:
 
-### Ejecución Local
-1. Carga un documento a Blob Storage.
-2. Ejecuta `process_and_submit_batch.py` con parámetros adecuados.
-
-Ejemplo:
-```bash
-python local/process_and_submit_batch.py --project_name CFA009660 --document_name IXP-documento.pdf
 ```
+Agentes_jen_rebuild/
+├── .env.example                 # Ejemplo de variables de entorno necesarias
+├── .gitignore                   # Reglas para excluir archivos sensibles y temporales
+├── README.md                    # Este documento
+├── azure_functions/             # Código desplegable como Azure Functions
+│   ├── .funcignore              # Exclusiones para despliegue de Functions
+│   ├── OpenAiProcess/           # Función (Service Bus trigger) para procesar y enviar batch a OpenAI
+│   │   ├── __init__.py          # Lógica de la función (ver detalle abajo)
+│   │   └── function.json        # Definición del trigger y bindings de la Function
+│   ├── PoolingProcess/          # Función (Timer trigger) para hacer polling de resultados
+│   │   ├── __init__.py          # Lógica de la función (ver detalle abajo)
+│   │   └── function.json        # Definición del trigger y bindings de la Function
+│   ├── configure_servicebus.sh  # Script para configurar Service Bus (colas, conexiones)
+│   ├── deploy_functions.sh      # Script de despliegue de Functions a Azure
+│   ├── host.json                # Configuración del host de Azure Functions
+│   ├── prompt Auditoria.txt     # Prompt base para caso Auditoría
+│   ├── prompt Desembolsos.txt   # Prompt base para caso Desembolsos
+│   ├── prompt Productos.txt     # Prompt base para caso Productos
+│   ├── redeploy_complete_functions.sh # Script de redeploy completo
+│   ├── requirements.txt         # Dependencias Python para el entorno de Functions
+│   ├── shared_code/             # Código compartido entre funciones (reutilizable)
+│   │   ├── __init__.py
+│   │   ├── processors/
+│   │   │   ├── __init__.py
+│   │   │   ├── chunking_processor.py       # Lógica de partición (chunking) de textos
+│   │   │   ├── document_intelligence_processor.py # Orquesta Azure Document Intelligence + guardado
+│   │   │   └── openai_batch_processor.py   # Creación de jobs batch y filtrado por prompts
+│   │   ├── schemas/
+│   │   │   ├── __init__.py
+│   │   │   └── validation_schemas.py       # Esquemas de validación de salidas JSON
+│   │   └── utils/
+│   │       ├── __init__.py
+│   │       ├── app_insights_logger.py      # Configuración unificada de logging (App Insights)
+│   │       ├── blob_storage_client.py      # Cliente de Azure Blob Storage y rutas del proyecto
+│   │       └── jsonl_handler.py            # Utilidades para manejar archivos JSONL
+│   ├── tests/                   # Scripts de prueba y diagnóstico (no se despliegan)
+│   │   ## Scripts de pruebas y diagnóstico (azure_functions/tests) — ampliación detallada
+Además de los scripts ya documentados en esta sección, estos utilitarios te ayudan a diagnosticar despliegues en Azure y a validar la operación de extremo a extremo:
 
-### En la Nube (Azure Functions)
+- check_azure_logs.py
+  - Propósito: guía de diagnóstico para verificar el estado de la Function App y acceder rápidamente a recursos clave del portal de Azure.
+  - Lógica principal:
+    - Imprime los identificadores principales: Function App, Resource Group, Subscription.
+    - Construye y muestra URLs directas para: Portal de Azure (recurso), Kudu Log Stream (scm), Application Insights (logs).
+    - Comprueba la existencia y bindings del archivo function.json de OpenAiProcess para validar el trigger configurado.
+    - Intenta hacer un GET simple a la raíz del sitio de la Function App para confirmar conectividad (sin autenticación).
+    - Lista causas comunes de fallo y pasos recomendados de verificación.
+  - Requisitos: acceso a internet y permisos para consultar el recurso (no requiere Azure CLI para su ejecución básica).
 
-#### Envío de Mensajes a Service Bus
-La función OpenAiProcess se activa mediante mensajes de Service Bus con la siguiente estructura:
+- monitor_function_logs.py
+  - Propósito: monitoreo en tiempo (casi) real del estado de las funciones y de la cola de Azure Service Bus para validar procesamiento de mensajes.
+  - Lógica principal:
+    - Usa Azure CLI para:
+      - Consultar el Activity Log filtrado por la Function App (últimos 10 minutos).
+      - Listar funciones de la Function App y marcar si están activas o deshabilitadas.
+      - Consultar la cola Service Bus (recoaudit-queue) y extraer: activeMessageCount, deadLetterMessageCount.
+    - Ejecuta un bucle de ~2 minutos con verificaciones cada 15 segundos, mostrando recomendaciones según el estado de la cola.
+  - Requisitos: Azure CLI instalado y autenticado (az login) con permisos sobre el Resource Group y la Function App.
 
-**Mensaje para procesar un documento específico:**
-```json
-{
-  "project_name": "CFA009660",
-  "queue_type": "processing",
-  "document_name": "IXP-documento-auditoria.pdf",
-  "document_type": "Auditoria"
-}
-```
+- configure_azure_env.py
+  - Propósito: facilitar la configuración de variables de entorno (App Settings) en la Function App a partir de un archivo .env local.
+  - Lógica principal:
+    - Carga variables desde azure_functions/.env (si existe) y prepara pares clave/valor relevantes para Service Bus.
+    - Genera los comandos de Azure CLI correspondentes (az functionapp config appsettings set ...).
+    - Permite ejecución automática de los comandos (opcional) si detecta Azure CLI disponible, o bien deja el listado para copiar/pegar.
+    - Recomienda reiniciar la Function App al finalizar para aplicar los cambios.
+  - Requisitos: Azure CLI instalado y autenticado; disponer de valores en el .env local.
 
-**Mensaje para procesar todos los documentos de un proyecto:**
-```json
-{
-  "project_name": "CFA009660",
-  "queue_type": "processing"
-}
-```
+Notas de seguridad y operación para estos scripts:
+- Algunos scripts muestran identificadores de recursos en consola; evita compartir salidas sin anonimizar.
+- Asegúrate de no imprimir ni registrar secretos completos (se enmascaran cuando corresponde).
+- Estos scripts son auxiliares para diagnóstico; no forman parte del runtime de producción.
 
-#### Ejemplos de Uso con Scripts de Prueba
+- check_blob_content.py
+  - Propósito: verificar el contenido del Azure Blob Storage y listar documentos disponibles.
+  - Lógica principal:
+    - Lista todos los contenedores disponibles en la cuenta de Storage.
+    - Verifica específicamente el contenedor 'caf-documents'.
+    - Lista blobs con prefijo 'basedocuments/' mostrando nombre, tamaño y estructura de proyectos.
+    - Genera resumen con total de documentos encontrados y proyectos identificados.
+    - Incluye manejo de errores de conexión y autenticación.
+  - Requisitos: AZURE_STORAGE_CONNECTION_STRING configurada.
 
-**Enviar mensaje de prueba:**
-```bash
-python azure_functions/tests/send_test_message.py CFA009660 processing
-```
+- check_documents.py
+  - Propósito: analizar documentos de un proyecto específico contra prefijos permitidos para cada prompt.
+  - Lógica principal:
+    - Lista todos los documentos de un proyecto específico (hardcoded: "CFA009660").
+    - Extrae prefijos de nombres de documentos (parte antes del guión o primeros 3 caracteres).
+    - Compara contra prefijos permitidos por prompt: Auditoría ['IXP'], Productos ['ROP', 'INI', 'DEC', 'IFS'], Desembolsos ['ROP', 'INI', 'DEC'].
+    - Identifica documentos que coinciden y no coinciden con ningún prefijo permitido.
+    - Genera resumen estadístico de documentos procesables vs filtrados.
+  - Requisitos: acceso a BlobStorageClient y proyecto con documentos.
 
-**Verificar documentos en Blob Storage:**
-```bash
-python azure_functions/tests/check_documents.py
-```
+- configure_azure_variables.sh
+  - Propósito: configurar variables de entorno críticas y opcionales en Azure Functions usando Azure CLI.
+  - Lógica principal:
+    - Define variables críticas (Document Intelligence, OpenAI, Storage, Service Bus) y opcionales (logging, sitio).
+    - Genera comandos `az functionapp config appsettings set` para cada variable.
+    - Incluye validación de existencia de variables antes de configurar.
+    - Reinicia la Function App al finalizar para aplicar cambios.
+    - Proporciona verificación post-configuración listando las variables configuradas.
+  - Requisitos: Azure CLI instalado y autenticado, permisos sobre la Function App.
 
-**Monitorear logs en tiempo real:**
-```bash
-python azure_functions/tests/monitor_function_logs.py
-```
+- configure_single_variable.sh
+  - Propósito: configurar una variable de entorno individual en Azure Functions via línea de comandos.
+  - Lógica principal:
+    - Acepta argumentos: nombre de variable y valor desde línea de comandos.
+    - Valida que se proporcionen ambos parámetros requeridos.
+    - Ejecuta comando Azure CLI para configurar la variable específica.
+    - Verifica la configuración listando la variable configurada.
+    - Incluye instrucciones de uso y manejo de errores.
+  - Uso: `./configure_single_variable.sh VARIABLE_NAME "variable_value"`
+  - Requisitos: Azure CLI instalado y autenticado.
 
-#### Despliegue
-- Despliega las Azure Functions usando los scripts proporcionados:
-```bash
-./azure_functions/deploy_functions.sh
-```
+- diagnose_openai_variables.py
+  - Propósito: diagnosticar configuración de variables OpenAI y diferencias entre OpenAiProcess y PoolingProcess.
+  - Lógica principal:
+    - Verifica todas las variables de entorno relacionadas con OpenAI (API_KEY, ENDPOINT, API_VERSION, DEPLOYMENT_NAME).
+    - Analiza diferencias de configuración entre las dos funciones (valores por defecto diferentes).
+    - Identifica problemas comunes: variables faltantes, diferencias en API version, problemas de permisos.
+    - Intenta conexión real con Azure OpenAI para validar credenciales y listar batches.
+    - Proporciona recomendaciones específicas para resolver problemas de configuración.
+  - Requisitos: variables OpenAI configuradas, librería openai instalada.
 
-## Tipos de Documentos Soportados
-- CFA: Documentos financieros tipo A.
-- CFB: Documentos financieros tipo B.
-- Otros configurables vía prompts.
+- download_batch_info.py
+  - Propósito: descargar y mostrar información detallada de archivos batch desde Azure Blob Storage.
+  - Lógica principal:
+    - Descarga archivos batch_info desde basedocuments/{proyecto}/processed/openai_logs/.
+    - Parsea y muestra contenido JSON de cada archivo batch_info.
+    - Verifica campos específicos como 'documents_info' y 'prompts_applied'.
+    - Lista documentos procesados y prompts aplicados por batch.
+    - Incluye manejo de errores de descarga y parsing JSON.
+  - Uso: `python download_batch_info.py [PROJECT_NAME]` (por defecto: "CFA009660")
+  - Requisitos: AZURE_STORAGE_CONNECTION_STRING configurada.
 
-## Prompts Especializados
-Prompts en `prompts/` como `CFA_prompt.json` definen el análisis (e.g., extracción de secciones, resúmenes).
+- fix_openai_config.sh
+  - Propósito: corregir configuración específica de Azure OpenAI en Functions para resolver error 401.
+  - Lógica principal:
+    - Configura variables OpenAI específicas: endpoint, API key, versión API, nombre de deployment.
+    - Usa valores específicos para resolver problema de endpoint incorrecto.
+    - Reinicia la Function App para aplicar cambios de configuración.
+    - Incluye verificación post-configuración y recomendaciones de monitoreo.
+    - Diseñado específicamente para resolver error 401 causado por endpoint incorrecto.
+  - Requisitos: Azure CLI instalado y autenticado, valores correctos de OpenAI.
 
-## Estructura de Output JSON
-Los resultados incluyen:
-- Resúmenes por chunk.
-- Extracciones estructuradas (e.g., tablas, entidades).
-- Metadatos de procesamiento.
+- monitor_function_logs.py
+  - Propósito: monitoreo en tiempo (casi) real del estado de las funciones y de la cola de Azure Service Bus para validar procesamiento de mensajes.
+  - Lógica principal:
+    - Usa Azure CLI para:
+      - Consultar el Activity Log filtrado por la Function App (últimos 10 minutos).
+      - Listar funciones de la Function App y marcar si están activas o deshabilitadas.
+      - Consultar la cola Service Bus (recoaudit-queue) y extraer: activeMessageCount, deadLetterMessageCount.
+    - Ejecuta un bucle de ~2 minutos con verificaciones cada 15 segundos, mostrando recomendaciones según el estado de la cola.
+  - Requisitos: Azure CLI instalado y autenticado (az login) con permisos sobre el Resource Group y la Function App.
 
-## Configuración Avanzada
-- Variables de entorno clave: AZURE_OPENAI_ENDPOINT, SERVICEBUS_CONNECTION_STRING, etc.
-- Ajusta chunk sizes en chunking_processor.py.
+- configure_azure_env.py
+  - Propósito: facilitar la configuración de variables de entorno (App Settings) en la Function App a partir de un archivo .env local.
+  - Lógica principal:
+    - Carga variables desde azure_functions/.env (si existe) y prepara pares clave/valor relevantes para Service Bus.
+    - Genera los comandos de Azure CLI correspondentes (az functionapp config appsettings set ...).
+    - Permite ejecución automática de los comandos (opcional) si detecta Azure CLI disponible, o bien deja el listado para copiar/pegar.
+    - Recomienda reiniciar la Function App al finalizar para aplicar los cambios.
+  - Requisitos: Azure CLI instalado y autenticado; disponer de valores en el .env local.
 
-## Logging
-Usa Application Insights para logs estructurados. Configura INSTRUMENTATION_KEY.
+Notas de seguridad y operación para estos scripts:
+- Algunos scripts muestran identificadores de recursos en consola; evita compartir salidas sin anonimizar.
+- Asegúrate de no imprimir ni registrar secretos completos (se enmascaran cuando corresponde).
+- Estos scripts son auxiliares para diagnóstico; no forman parte del runtime de producción.
 
-## Pruebas
-- Ejecuta scripts en `tests/` para simular mensajes y verificar flujos.
-- Ejemplo: `python tests/send_test_message_simple.py <project> <doc.pdf>`
+- send_test_message.py
+  - Propósito: enviar mensaje de prueba.
+  - Lógica principal:
+    - Envía mensaje a cola de Service Bus.
 
-## Troubleshooting
+- send_test_message_simple.py
+  - Propósito: enviar mensaje de prueba.
+  - Lógica principal:
+    - Envía mensaje a cola de Service Bus.
 
-### Problemas Comunes con OpenAiProcess
+- upload_documents_to_blob.py
+  - Propósito: cargar documentos de prueba a basedocuments/{proyecto}/raw.
+  - Lógica principal:
+    - Carga documentos a Blob Storage.
+    - Guarda resultado (JSON/texto), sube resultado a blob (ruta arbitraria).
+    - Crea archivo temporal desde blob (manejo robusto de Unicode para nombres).
 
-**Error: "Incorrect padding" en Blob Storage**
-- Causa: Problemas con la cadena de conexión de Azure Storage
-- Solución: Verificar `AZURE_STORAGE_CONNECTION_STRING` en variables de entorno
+2) shared_code (reutilizable por Functions)
+- utils/blob_storage_client.py
+  - Variables: requiere AZURE_STORAGE_CONNECTION_STRING (y opcionalmente el nombre del contenedor; por defecto caf-documents).
+  - Estructura de rutas en contenedor:
+    - basedocuments/{proyecto}/raw               → documentos fuente
+    - basedocuments/{proyecto}/processed/DI      → salidas de Azure Document Intelligence
+    - basedocuments/{proyecto}/processed/chunks  → chunks resultantes
+    - basedocuments/{proyecto}/processed/openai_logs → metadatos de batches
+    - basedocuments/{proyecto}/results           → resultados finales
+  - Funcionalidad clave:
+    - list_projects, list_raw_documents, document_exists
+    - upload_raw_document, save_processed_document, load_processed_document
+    - save_result (JSON/texto), upload_blob (ruta arbitraria)
+    - create_temp_file_from_blob (manejo robusto de Unicode para nombres)
 
-**Error: "ModuleNotFoundError: azure.functions"**
-- Causa: Dependencias no instaladas
-- Solución: `pip install azure-functions azure-storage-blob azure-ai-documentintelligence`
+- utils/app_insights_logger.py
+  - Inicializa un logger consistente para toda la solución.
+  - Integra con Application Insights si APPLICATIONINSIGHTS_CONNECTION_STRING está configurada.
 
-**Documentos no generan requests OpenAI**
-- Causa: Prefijo del documento no está en la lista de permitidos
-- Verificación: Revisar logs para mensaje "No se generaron requests para el batch"
-- Solución: Verificar que el prefijo del documento esté en las listas permitidas:
-  - Auditoría: `['IXP']`
-  - Productos: `['ROP', 'INI', 'DEC', 'IFS']`
-  - Desembolsos: `['ROP', 'INI', 'DEC']`
+- utils/jsonl_handler.py
+  - Lectura/escritura de archivos JSONL (útil para inputs/outputs de OpenAI Batch).
 
-**Error de autenticación con Azure Services**
-- Verificar todas las variables de entorno requeridas
-- Confirmar que las keys y endpoints sean válidos
-- Revisar permisos en Azure Portal
+- processors/document_intelligence_processor.py
+  - Orquesta el procesamiento con Azure Document Intelligence:
+    - Por documento y por proyecto (descarga, parseo, extracción de contenido estructurado).
+    - Guarda cada documento procesado en processed/DI como JSON (contenido + metadatos + json_data de DI).
+    - Guarda un metadata JSON del proyecto.
+    - Si auto_chunk está activo, invoca chunking_processor para generar processed/chunks.
 
-### Debugging General
-- Revisa logs en Application Insights para debugging detallado
-- Usa `monitor_function_logs.py` para logs en tiempo real
-- Verifica el estado de los batches en Azure OpenAI Studio
+- processors/chunking_processor.py
+  - Divide textos/documentos en trozos óptimos para el modelo (límite de tokens, overlap configurable).
+  - Emite lista de chunks con información de contexto (índice, rangos, fragmento de texto, etc.).
 
-## Métricas
-Monitorea tiempos de procesamiento, tasas de error vía Insights.
+- processors/openai_batch_processor.py
+  - Administra la creación de jobs batch en Azure OpenAI:
+    - _setup_client: Configura cliente con AZURE_OPENAI_API_KEY/ENDPOINT/API_VERSION/DEPLOYMENT_NAME.
+    - _load_prompts: Carga los contenidos de los prompts desde archivos .txt.
+    - _get_document_prefix y _should_process_with_prompt: Reglas de filtrado por prefijos/tipos.
+    - _create_batch_request: Construye la petición para /chat/completions (una por prompt/documento/chunk).
+    - create_batch_job(project_name):
+      - Recorre processed/DI y processed/chunks del proyecto.
+      - Prepara archivo .jsonl temporal con todas las requests.
+      - Sube el input a OpenAI y crea el batch (window 24h) con metadata del proyecto.
+      - Guarda un batch_info_*.json en processed/openai_logs.
+    - process_chunks: Crea un batch directamente desde una lista de chunks en memoria.
 
-## Seguridad
-- No almacenes keys en código.
-- Usa Azure Key Vault para producción.
+3) local (ejecución local)
 
-## Contribuciones
-Fork y PRs bienvenidos.
+### Scripts Principales
+- **process_and_submit_batch.py**
+  - Propósito: script principal para procesamiento completo local de documentos.
+  - Lógica principal:
+    - Configura logging y clientes de Azure (Document Intelligence, Blob Storage, OpenAI).
+    - Procesa documentos con Document Intelligence y genera chunks.
+    - Crea y envía batch jobs a Azure OpenAI.
+    - Incluye funciones de setup y manejo de directorios de trabajo.
+  - Uso: procesamiento local de proyectos completos.
 
-## Changelog
-- Versión actual: Integración completa de polling y procesamiento batch.
+- **results.py**
+  - Propósito: monitoreo y procesamiento de resultados de batches OpenAI.
+  - Lógica principal:
+    - Clase `BatchResultsProcessor` para gestionar el ciclo de vida de batches.
+    - Métodos para verificar estado, esperar completación y descargar resultados.
+    - Procesamiento de archivos JSONL de resultados y guardado en Blob Storage.
+    - Manejo de reintentos y logging detallado.
+  - Uso: monitoreo local de batches en progreso.
 
-## Licencia
-MIT
+### Procesadores Locales
+- **document_intelligence_processor.py**
+  - Versión local del procesador de Document Intelligence.
+  - Funcionalidades similares a la versión de shared_code pero optimizada para ejecución local.
+  - Incluye configuración de logging específica para entorno local.
 
-## Autores
-- [Tu Nombre]
+- **chunking_processor.py**
+  - Procesador local para división de documentos en chunks.
+  - Implementa algoritmos de chunking con límites de tokens y overlap configurable.
+  - Optimizado para procesamiento batch local.
 
-## Soporte
-Contacta para issues.
+- **openai_batch_processor.py**
+  - Versión local del procesador de batches OpenAI.
+  - Incluye las mismas reglas de filtrado por prefijos que la versión de Azure Functions.
+  - Configuración específica para entorno de desarrollo local.
 
-## Despliegue y Pruebas
-- **Despliegue**: Usa scripts como deploy_functions.sh para Azure Functions.
-- **Pruebas**: Scripts en `tests/` para enviar mensajes, subir documentos, monitorear logs.
-- **Troubleshooting**: Verificar variables de entorno, revisar logs en Application Insights.
+### Estructura de Soporte
+- **schemas/**
+  - `validation_schemas.py`: esquemas de validación para outputs JSON.
+  - Definiciones de estructura esperada para resultados de procesamiento.
+
+- **utils/**
+  - `app_insights_logger.py`: configuración de logging para Application Insights.
+  - `blob_storage_client.py`: cliente local de Azure Blob Storage.
+  - `jsonl_handler.py`: utilidades para manejo de archivos JSONL.
+
+- **tests/**
+  - `output/`: directorio para almacenar resultados de pruebas locales.
+  - Espacio para outputs temporales y archivos de prueba.
+
+### Archivos de Configuración
+- **logging_config.json**
+  - Configuración detallada de logging para scripts locales.
+  - Niveles de log, formatos y destinos de salida.
+
+- **prompt Auditoria.txt**, **prompt Desembolsos.txt**, **prompt Productos.txt**
+  - Copias locales de los prompts utilizados en Azure Functions.
+  - Permiten desarrollo y pruebas sin dependencia del entorno cloud.
+
+### Uso del Entorno Local
+1. **Desarrollo**: Permite desarrollar y probar lógica de procesamiento sin desplegar a Azure.
+2. **Debugging**: Facilita la depuración con logs detallados y acceso directo a archivos.
+3. **Procesamiento Batch**: Útil para procesar grandes volúmenes de documentos de forma controlada.
+4. **Validación**: Verificar resultados antes de implementar cambios en producción.
+
+## Variables de entorno (compilado)
+- Azure Document Intelligence
+  - AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT, AZURE_DOCUMENT_INTELLIGENCE_KEY
+- Azure OpenAI
+  - AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_VERSION, AZURE_OPENAI_DEPLOYMENT_NAME
+- Azure Storage
+  - AZURE_STORAGE_CONNECTION_STRING, AZURE_STORAGE_CONTAINER_NAME (por defecto: caf-documents)
+- Logging / App Insights
+  - APPLICATIONINSIGHTS_CONNECTION_STRING, AZURE_APP_INSIGHTS_INSTRUMENTATION_KEY
+- Otros
+  - LOG_LEVEL, LOG_TO_FILE, LOG_FILE_PATH, LOG_TO_CONSOLE, LOG_FORMAT
+
+Consulta .env.example para un listado con ejemplos de valores y formatos admitidos.
+
+## Operación del proyecto (end-to-end)
+- Ingesta
+  - Sube documentos a basedocuments/{proyecto}/raw del contenedor configurado.
+- Disparo del procesamiento
+  - En nube: envía mensaje a Service Bus (OpenAiProcess) o ejecuta la Function manualmente.
+  - Local: usa process_and_submit_batch.py con parámetros de proyecto/documento.
+- Extracción y chunking
+  - DI produce JSON estructurado por documento y metadatos del proyecto. Luego se generan chunks.
+- Creación de batch en OpenAI
+  - Se ensamblan requests con prompts específicos, aplicando filtros por prefijo para cada tipo.
+- Polling y resultados
+  - PoolingProcess consulta estados; cuando están listos, descarga/parcea el output JSONL y guarda resultados finales.
+- Persistencia
+  - Todos los artefactos se guardan en Blob Storage bajo la jerarquía del proyecto.
+
+## Prácticas de seguridad y cumplimiento
+- No versionar secretos: .gitignore incluye archivos locales y tests con credenciales.
+- Variables sensibles siempre por entorno o Key Vault.
+- Los archivos de prompts no deben incluir datos confidenciales.
+- Revisión de logs: evitar registrar valores de claves o tokens.
+
+## Despliegue y pruebas
+- Despliegue a Azure Functions
+  - Ejecuta ./azure_functions/deploy_functions.sh con el entorno autenticado en Azure.
+- Pruebas de integración
+  - Usa scripts en azure_functions/tests para validar conectividad, colas, logs y contenido de Blob.
+- Monitoreo
+  - Application Insights + logs de Functions para telemetría y diagnóstico.
