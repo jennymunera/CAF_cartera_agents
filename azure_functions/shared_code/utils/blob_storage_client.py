@@ -658,7 +658,7 @@ class BlobStorageClient:
             logger.error(f"Error descargando blob '{blob_name}': {str(e)}")
             raise
     
-    def list_blobs_with_prefix(self, prefix: str, container_name: Optional[str] = None, name_filter: Optional[Callable[[str], bool]] = None) -> List[str]:
+    def list_blobs_with_prefix_names(self, prefix: str, container_name: Optional[str] = None, name_filter: Optional[Callable[[str], bool]] = None) -> List[str]:
         """
         Lista blobs cuyo nombre empieza por el prefijo indicado. Permite filtrar por nombre y cambiar el contenedor opcionalmente.
         
