@@ -19,7 +19,7 @@ import json
 import tempfile
 import unicodedata
 from pathlib import Path
-from typing import List, Dict, Any, Optional, BinaryIO
+from typing import List, Dict, Any, Optional, BinaryIO, Callable
 from datetime import datetime
 from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
 from azure.core.exceptions import ResourceNotFoundError, ResourceExistsError
@@ -582,26 +582,106 @@ class BlobStorageClient:
         except Exception as e:
             logger.warning(f"Error eliminando archivo temporal {temp_path}: {str(e)}")
     
-    def list_blobs_with_prefix(self, prefix: str) -> List[str]:
+    def list_blobs_with_prefix(self, prefix: str, container_name: Optional[str] = None, name_filter: Optional[Callable[[str], bool]] = None) -> List[Dict[str, str]]:
         """
-        Lista todos los blobs que comienzan con el prefijo especificado.
+        Lista blobs cuyo nombre empieza por el prefijo indicado. Compatible con PoolingProcess:
+        - "container_name" se interpreta como carpeta raíz virtual (p.ej. "basedocuments/") dentro del contenedor por defecto
+        - "name_filter" puede ser una función o una cadena a buscar dentro del nombre
         
         Args:
-            prefix: Prefijo para filtrar los blobs
-            
+            prefix: Prefijo del nombre del blob a buscar (e.g., "basedocuments/CAF123/processed/DI/") o relativo si se usa container_name
+            container_name: Carpeta raíz virtual a anteponer al prefijo (NO cambia el contenedor real)
+            name_filter: Función opcional (name -> bool) o cadena que debe estar contenida en el nombre
+        
         Returns:
-            Lista de nombres de blobs que coinciden con el prefijo
+            Lista de dicts con la forma {"name": <nombre_completo_del_blob>}
         """
         try:
-            blob_list = []
-            blobs = self.container_client.list_blobs(name_starts_with=prefix)
-            
-            for blob in blobs:
-                blob_list.append(blob.name)
-            
-            logger.info(f"Encontrados {len(blob_list)} blobs con prefijo '{prefix}'")
-            return blob_list
-            
+            # Trabajamos siempre en el contenedor configurado en el cliente
+            container_client = self.container_client
+
+            # Construir el prefijo efectivo: si se pasa container_name (virtual), lo anteponemos
+            effective_prefix = prefix or ""
+            if container_name:
+                # Asegurar barra separadora adecuada
+                base = container_name.rstrip("/")
+                if effective_prefix and not effective_prefix.startswith("/"):
+                    effective_prefix = f"{base}/{effective_prefix}"
+                else:
+                    effective_prefix = f"{base}/{effective_prefix.lstrip('/')}"
+
+            blobs_iter = container_client.list_blobs(name_starts_with=effective_prefix)
+            results: List[Dict[str, str]] = []
+
+            # Preparar filtro si viene como cadena
+            filter_callable: Optional[Callable[[str], bool]] = None
+            if name_filter is None:
+                filter_callable = None
+            elif isinstance(name_filter, str):
+                substr = name_filter
+                filter_callable = lambda n, s=substr: s in n
+            else:
+                filter_callable = name_filter  # type: ignore
+
+            for blob in blobs_iter:
+                name = blob.name
+                if filter_callable is None or filter_callable(name):
+                    results.append({"name": name})
+            return results
+        except Exception as e:
+            logger.error(f"Error listando blobs con prefijo '{prefix}': {str(e)}")
+            return []
+    
+    def download_blob(self, container_name: Optional[str], blob_name: str) -> bytes:
+        """
+        Descarga un blob devolviendo su contenido como bytes. Compatible con el uso en PoolingProcess,
+        donde "container_name" representa una carpeta raíz virtual (p.ej. "basedocuments/") dentro
+        del contenedor de este cliente.
+
+        Args:
+            container_name: Carpeta raíz virtual a anteponer (p.ej. "basedocuments"). Si None, se usa blob_name tal cual.
+            blob_name: Ruta del blob relativa a dicha carpeta virtual o completa si container_name es None.
+        Returns:
+            Contenido del blob en bytes.
+        """
+        try:
+            # Construir ruta efectiva dentro del contenedor actual
+            if container_name:
+                base = container_name.rstrip('/')
+                path = f"{base}/{blob_name.lstrip('/')}"
+            else:
+                path = blob_name
+
+            blob_client = self.container_client.get_blob_client(path)
+            return blob_client.download_blob().readall()
+        except Exception as e:
+            logger.error(f"Error descargando blob '{blob_name}': {str(e)}")
+            raise
+    
+    def list_blobs_with_prefix(self, prefix: str, container_name: Optional[str] = None, name_filter: Optional[Callable[[str], bool]] = None) -> List[str]:
+        """
+        Lista blobs cuyo nombre empieza por el prefijo indicado. Permite filtrar por nombre y cambiar el contenedor opcionalmente.
+        
+        Args:
+            prefix: Prefijo del nombre del blob a buscar (e.g., "basedocuments/CAF123/processed/DI/")
+            container_name: Nombre del contenedor a usar. Si no se especifica, usa el contenedor por defecto del cliente.
+            name_filter: Función opcional que recibe el nombre completo del blob y devuelve True si debe incluirse.
+        
+        Returns:
+            Lista de nombres completos de blobs que cumplen con el prefijo (y el filtro si se provee).
+        """
+        try:
+            container_client = self.container_client
+            if container_name and container_name != self.container_name:
+                container_client = self.blob_service_client.get_container_client(container_name)
+
+            blobs_iter = container_client.list_blobs(name_starts_with=prefix)
+            blob_names: List[str] = []
+            for blob in blobs_iter:
+                name = blob.name
+                if name_filter is None or name_filter(name):
+                    blob_names.append(name)
+            return blob_names
         except Exception as e:
             logger.error(f"Error listando blobs con prefijo '{prefix}': {str(e)}")
             return []
