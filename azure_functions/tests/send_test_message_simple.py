@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 def send_simple_test_message():
     """Enviar mensaje de prueba simple al Service Bus."""
     # Cargar variables de entorno desde el directorio azure_functions
-    env_path = os.path.join(os.path.dirname(__file__), 'azure_functions', '.env')
+    env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
     load_dotenv(env_path)
     
     # Configuración del Service Bus

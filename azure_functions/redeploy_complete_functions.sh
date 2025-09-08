@@ -1,97 +1,79 @@
-#!/bin/bash
+set -euo pipefail
 
-# Script para redesplegar Azure Functions con código completo
-# Autor: Sistema de migración Azure Functions
-# Fecha: $(date)
-
-set -e
-
-echo "🚀 Iniciando redespliegue completo de Azure Functions..."
-
-# Variables
 FUNCTION_APP_NAME="azfunc-analisis-MVP-CARTERA-CR"
 RESOURCE_GROUP="RG-POC-CARTERA-CR"
 DEPLOYMENT_ZIP="deployment_complete.zip"
+USE_PREBUILD="${USE_PREBUILD:-0}"   # 0 = Oryx remoto, 1 = subir .python_packages ya construido (sin Oryx)
 
-# Verificar que estamos en el directorio correcto
-if [ ! -f "host.json" ]; then
-    echo "❌ Error: No se encuentra host.json. Ejecuta desde el directorio azure_functions"
-    exit 1
+echo "🚀 Despliegue Azure Functions (${FUNCTION_APP_NAME})"
+
+# 0) Activar entorno virtual si existe
+if [ -d ".venv311" ]; then
+  echo "🐍 Activando entorno virtual .venv311..."
+  source .venv311/bin/activate
+  echo "✅ Entorno virtual activado: $(which python)"
+else
+  echo "⚠️  No se encontró .venv311, usando Python del sistema"
 fi
 
-# Limpiar deployment anterior si existe
-if [ -f "$DEPLOYMENT_ZIP" ]; then
-    echo "🧹 Eliminando deployment anterior..."
-    rm "$DEPLOYMENT_ZIP"
+# 1) Validaciones de raíz
+[ -f "host.json" ] || { echo "❌ host.json no encontrado. Ejecuta desde azure_functions/"; exit 1; }
+[ -f "requirements.txt" ] || { echo "❌ requirements.txt no encontrado"; exit 1; }
+[ -d "OpenAiProcess" ] || { echo "❌ Falta carpeta OpenAiProcess/"; exit 1; }
+[ -d "PoolingProcess" ] || { echo "❌ Falta carpeta PoolingProcess/"; exit 1; }
+[ -d "shared_code" ] || { echo "⚠️  shared_code/ no existe. Si tienes módulos locales, esto causará import errors."; }
+
+# 2) Limpiar ZIP previo
+rm -f "$DEPLOYMENT_ZIP"
+
+# 3) (Opcional) Preconstruir dependencias para Linux y evitar Oryx
+if [ "$USE_PREBUILD" = "1" ]; then
+  echo "🛠️  Construyendo .python_packages (Linux) con Oryx build container..."
+  docker run --rm -v "$PWD":/app -w /app mcr.microsoft.com/oryx/build:stable bash -lc '
+    python3.11 -m venv .venv && . .venv/bin/activate &&
+    python -m pip install -U pip &&
+    pip install --no-cache-dir -r requirements.txt -t .python_packages/lib/site-packages
+  '
+  echo "✅ .python_packages construido"
 fi
 
-# Crear el archivo ZIP con toda la estructura
-echo "📦 Creando archivo de despliegue completo..."
+# 4) Armar ZIP (sin venv local ni __pycache__)
+echo "📦 Empaquetando..."
+zip -r "$DEPLOYMENT_ZIP" host.json requirements.txt .funcignore \
+  OpenAiProcess/ PoolingProcess/ shared_code/ \
+  "prompt Auditoria.txt" "prompt Desembolsos.txt" "prompt Productos.txt" \
+  -x "*/__pycache__/*" ".venv/*" "venv/*" ".python_packages/*" "local.settings.json"
 
-# Incluir archivos de configuración raíz
-zip -r "$DEPLOYMENT_ZIP" host.json local.settings.json .funcignore
+# Si USE_PREBUILD=1, agrega .python_packages al ZIP
+if [ "$USE_PREBUILD" = "1" ]; then
+  zip -r "$DEPLOYMENT_ZIP" .python_packages/ -x "*/__pycache__/*"
+fi
 
-# Incluir OpenAiProcess con todos sus archivos
-echo "📁 Agregando OpenAiProcess..."
-zip -r "$DEPLOYMENT_ZIP" OpenAiProcess/
-
-# Incluir PoolingProcess con todos sus archivos
-echo "📁 Agregando PoolingProcess..."
-zip -r "$DEPLOYMENT_ZIP" PoolingProcess/
-
-# Verificar contenido del ZIP
-echo "📋 Contenido del archivo de despliegue:"
+echo "📋 Contenido del ZIP:"
 zip -sf "$DEPLOYMENT_ZIP"
 
-# Verificar autenticación Azure
+# 5) Autenticación Azure
 echo "🔐 Verificando autenticación Azure..."
-az account show --output table
+az account show -o table >/dev/null
 
-if [ $? -ne 0 ]; then
-    echo "❌ Error: No estás autenticado en Azure. Ejecuta 'az login'"
-    exit 1
-fi
-
-# Desplegar a Azure
-echo "☁️ Desplegando a Azure Function App: $FUNCTION_APP_NAME..."
-az functionapp deployment source config-zip \
+# 6) Despliegue
+echo "☁️  Desplegando (build remoto Oryx=$( [ "$USE_PREBUILD" = "0" ] && echo ON || echo OFF ))..."
+if [ "$USE_PREBUILD" = "0" ]; then
+  # Con Oryx remoto
+  az functionapp deployment source config-zip \
     --name "$FUNCTION_APP_NAME" \
     --resource-group "$RESOURCE_GROUP" \
     --src "$DEPLOYMENT_ZIP" \
     --build-remote true \
     --verbose
-
-if [ $? -eq 0 ]; then
-    echo "✅ Despliegue completado exitosamente!"
-    
-    # Esperar un momento para que el despliegue se complete
-    echo "⏳ Esperando que el despliegue se complete..."
-    sleep 30
-    
-    # Verificar funciones desplegadas
-    echo "🔍 Verificando funciones desplegadas..."
-    az functionapp function list \
-        --name "$FUNCTION_APP_NAME" \
-        --resource-group "$RESOURCE_GROUP" \
-        --output table
-    
-    echo ""
-    echo "🎉 ¡Redespliegue completo exitoso!"
-    echo "📊 Puedes verificar el estado en:"
-    echo "   - Azure Portal: https://portal.azure.com"
-    echo "   - Function App: $FUNCTION_APP_NAME"
-    echo "   - Resource Group: $RESOURCE_GROUP"
-    echo ""
-    echo "🔍 Para verificar logs:"
-    echo "   az functionapp logs tail --name $FUNCTION_APP_NAME --resource-group $RESOURCE_GROUP"
-    
 else
-    echo "❌ Error durante el despliegue"
-    exit 1
+  # Sin Oryx (subimos paquete listo)
+  az functionapp config appsettings set \
+    -g "$RESOURCE_GROUP" -n "$FUNCTION_APP_NAME" \
+    --settings SCM_DO_BUILD_DURING_DEPLOYMENT=false ENABLE_ORYX_BUILD=false >/dev/null
+  az webapp deployment source config-zip \
+    -g "$RESOURCE_GROUP" -n "$FUNCTION_APP_NAME" --src "$DEPLOYMENT_ZIP" --verbose
 fi
 
-# Limpiar archivo temporal
-echo "🧹 Limpiando archivos temporales..."
-rm "$DEPLOYMENT_ZIP"
-
-echo "✨ Proceso completado!"
+echo "✅ Despliegue enviado. Consultando logs..."
+az webapp log deployment show --name "$FUNCTION_APP_NAME" --resource-group "$RESOURCE_GROUP" || true

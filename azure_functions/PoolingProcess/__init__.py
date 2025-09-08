@@ -10,12 +10,12 @@ from typing import Dict, List, Any, Optional
 from dotenv import load_dotenv
 from openai import AzureOpenAI
 
-# Agregar el directorio padre al path para importar los módulos locales
-sys.path.append(str(Path(__file__).parent))
+# Agregar el directorio padre al path para importar los módulos compartidos
+sys.path.append(str(Path(__file__).parent.parent))
 
-# Importar utilidades locales
-from utils.app_insights_logger import get_logger, generate_operation_id
-from utils.blob_storage_client import BlobStorageClient
+# Importar utilidades desde shared_code
+from shared_code.utils.app_insights_logger import get_logger, generate_operation_id
+from shared_code.utils.blob_storage_client import BlobStorageClient
 
 # Cargar variables de entorno
 load_dotenv()
@@ -151,14 +151,17 @@ class BatchResultsProcessor:
         
     def _setup_client(self) -> AzureOpenAI:
         """
-        Configura el cliente de Azure OpenAI
+        Configura el cliente de Azure OpenAI usando el mismo patrón que OpenAiProcess
         """
         api_key = os.getenv('AZURE_OPENAI_API_KEY')
-        endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
-        api_version = os.getenv('AZURE_OPENAI_API_VERSION', '2024-02-15-preview')
+        endpoint = os.getenv('AZURE_OPENAI_ENDPOINT', 'https://oai-poc-idatafactory-cr.openai.azure.com/')
+        api_version = os.getenv('AZURE_OPENAI_API_VERSION', '2025-04-01-preview')
         
-        if not api_key or not endpoint:
-            raise ValueError("Faltan credenciales de Azure OpenAI")
+        if not api_key:
+            raise ValueError("AZURE_OPENAI_API_KEY no encontrada en variables de entorno")
+        
+        self.logger.info(f"Configurando cliente OpenAI con endpoint: {endpoint}")
+        self.logger.info(f"API Version: {api_version}")
         
         return AzureOpenAI(
             api_key=api_key,

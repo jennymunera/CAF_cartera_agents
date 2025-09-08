@@ -23,7 +23,7 @@ from typing import List, Dict, Any, Optional, BinaryIO
 from datetime import datetime
 from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
 from azure.core.exceptions import ResourceNotFoundError, ResourceExistsError
-from utils.app_insights_logger import get_logger
+from shared_code.utils.app_insights_logger import get_logger
 
 logger = get_logger('blob_storage_client')
 

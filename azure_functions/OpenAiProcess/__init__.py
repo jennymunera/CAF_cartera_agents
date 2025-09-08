@@ -6,15 +6,15 @@ import sys
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional
-# Agregar el directorio padre al path para importar los módulos locales
-sys.path.append(str(Path(__file__).parent))
+# Agregar el directorio padre al path para importar los módulos compartidos
+sys.path.append(str(Path(__file__).parent.parent))
 
-# Importar procesadores locales
-from document_intelligence_processor import DocumentIntelligenceProcessor
-from chunking_processor import ChunkingProcessor
-from openai_batch_processor import OpenAIBatchProcessor
-from utils.app_insights_logger import get_logger, generate_operation_id
-from utils.blob_storage_client import BlobStorageClient
+# Importar procesadores desde shared_code
+from shared_code.processors.document_intelligence_processor import DocumentIntelligenceProcessor
+from shared_code.processors.chunking_processor import ChunkingProcessor
+from shared_code.processors.openai_batch_processor import OpenAIBatchProcessor
+from shared_code.utils.app_insights_logger import get_logger, generate_operation_id
+from shared_code.utils.blob_storage_client import BlobStorageClient
 
 # Configurar logger
 logger = get_logger("OpenAiProcess")
@@ -38,21 +38,45 @@ def main(msg: func.ServiceBusMessage) -> None:
         project_name = message_data['project_name']
         queue_type = message_data['queue_type']
         
+        # Extract optional fields
+        document_name = message_data.get('document_name')
+        document_type = message_data.get('document_type')
+        operation_id = message_data.get('operation_id')
+        
         logger.info(f"Processing project: {project_name}, queue_type: {queue_type}")
         
-        # Always process entire project (no individual document processing)
-        logger.info(f"Processing complete project: {project_name}")
-        process_complete_project(project_name, queue_type)
+        # If document_name is provided, process single document
+        if document_name:
+            logger.info(f"Processing single document: {document_name}")
+            process_single_document(project_name, document_name, document_type, operation_id)
+        else:
+            # Process entire project
+            logger.info(f"Processing complete project: {project_name}")
+            process_complete_project(project_name, queue_type)
             
     except json.JSONDecodeError as e:
         logger.error(f"Error parsing message JSON: {str(e)}")
     except Exception as e:
         logger.error(f"Error processing message: {str(e)}")
 
-def process_single_document(project_name: str, document_name: str, document_type: str, operation_id: str):
+def process_single_document(project_name: str, document_name: Optional[str] = None, document_type: Optional[str] = None, operation_id: str = None):
     """
     Procesa un documento específico
     """
+    # Generar operation_id si no se proporciona
+    if operation_id is None:
+        operation_id = generate_operation_id()
+    
+    # Si no se proporciona document_name, procesar proyecto completo
+    if document_name is None:
+        logger.info(f"No se especificó document_name, procesando proyecto completo: {project_name}")
+        return process_complete_project(project_name, "processing")
+    
+    # Determinar document_type si no se proporciona
+    if document_type is None:
+        document_type = determine_document_type(document_name)
+        logger.info(f"Tipo de documento determinado automáticamente: {document_type} para {document_name}")
+    
     # Configurar cliente de Blob Storage
     blob_client = BlobStorageClient()
     

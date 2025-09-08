@@ -4,10 +4,10 @@ import json
 from typing import List, Dict, Any, Tuple
 from pathlib import Path
 from datetime import datetime
-from utils.jsonl_handler import JSONLHandler
-from schemas.validation_schemas import validate_corpus_chunk
-from utils.app_insights_logger import get_logger
-from utils.blob_storage_client import BlobStorageClient
+from shared_code.utils.jsonl_handler import JSONLHandler
+from shared_code.schemas.validation_schemas import validate_corpus_chunk
+from shared_code.utils.app_insights_logger import get_logger
+from shared_code.utils.blob_storage_client import BlobStorageClient
 
 # Configure logging with Azure Application Insights
 logger = get_logger('chunking_processor')

@@ -8,9 +8,9 @@ from typing import Dict, Any, List, Optional
 from azure.ai.documentintelligence import DocumentIntelligenceClient
 from azure.core.credentials import AzureKeyCredential
 from azure.core.exceptions import HttpResponseError
-from chunking_processor import ChunkingProcessor
-from utils.blob_storage_client import BlobStorageClient
-from utils.app_insights_logger import get_logger
+from shared_code.processors.chunking_processor import ChunkingProcessor
+from shared_code.utils.blob_storage_client import BlobStorageClient
+from shared_code.utils.app_insights_logger import get_logger
 
 # Configure logging with Azure Application Insights
 logger = get_logger('document_intelligence_processor')
@@ -578,7 +578,7 @@ class DocumentIntelligenceProcessor:
         project_name = project_data["project_name"]
         
         try:
-            # Save individual document results to caf-documents/basedocuments/{project}/processed/DI/
+            # Save individual document results to basedocuments/{project}/processed/DI/
             for doc in project_data["documents"]:
                 if doc["metadata"]["processing_status"] == "success":
                     # Save processed document content and metadata
@@ -611,12 +611,12 @@ class DocumentIntelligenceProcessor:
             }, indent=2, ensure_ascii=False)
             
             # Upload project metadata to blob storage
-            metadata_blob_path = f"caf-documents/basedocuments/{project_name}/processed/DI/{project_name}_metadata.json"
+            metadata_blob_path = f"basedocuments/{project_name}/processed/DI/{project_name}_metadata.json"
             self.blob_client.upload_blob(metadata_blob_path, metadata_content, "application/json")
             
             logger.info(f"Project data saved to blob storage:")
             logger.info(f"   Project: {project_name}")
-            logger.info(f"   Location: caf-documents/basedocuments/{project_name}/processed/DI/")
+            logger.info(f"   Location: basedocuments/{project_name}/processed/DI/")
             logger.info(f"   Individual docs: {len([d for d in project_data['documents'] if d['metadata']['processing_status'] == 'success'])} files")
             
         except Exception as e:
