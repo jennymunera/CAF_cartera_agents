@@ -73,23 +73,26 @@ def main(mytimer: func.TimerRequest) -> None:
                 batch_id = batch_info.get('batch_id')
                 if not batch_id:
                     continue
-                
+
                 logger.log_batch_operation(
                     batch_id=batch_id,
                     operation_id=operation_id,
                     status="checking"
                 )
+
+                # Usar el estado actual ya verificado en get_pending_batches
+                batch_status = batch_info.get('current_status', 'unknown')
+                is_orphaned = batch_info.get('is_orphaned', False)
                 
-                # Verificar estado del batch
-                batch_status = batch_processor.check_batch_status(batch_id)
-                
+                logger.info(f"Procesando batch {batch_id} con estado: {batch_status} (huérfano: {is_orphaned})")
+
                 if batch_status == 'completed':
-                    # Procesar resultados del batch completado
+                    # Procesar resultados del batch completado (normal o huérfano)
                     results = batch_processor.process_completed_batch(
                         batch_id=batch_id,
                         batch_info=batch_info
                     )
-                    
+
                     if results:
                         completed_count += 1
                         logger.log_batch_operation(
@@ -98,7 +101,9 @@ def main(mytimer: func.TimerRequest) -> None:
                             status="completed_and_processed",
                             results_count=len(results.get('processed_results', []))
                         )
-                
+                elif batch_status in ['validating', 'in_progress', 'finalizing']:
+                    logger.info(f"Batch {batch_id} aún en proceso: {batch_status}")
+
                 processed_count += 1
                 
             except Exception as batch_error:
@@ -171,28 +176,62 @@ class BatchResultsProcessor:
     
     def get_pending_batches(self) -> List[Dict[str, Any]]:
         """
-        Obtiene la lista de batches pendientes desde el almacenamiento
+        Obtiene la lista de batches pendientes desde el blob storage
+        buscando archivos batch_info y verificando su estado en OpenAI
         
         Returns:
             Lista de información de batches pendientes
         """
         try:
-            # Aquí se implementaría la lógica para obtener batches pendientes
-            # desde Azure Storage, Cosmos DB, o el sistema de almacenamiento usado
-            
-            # Por ahora, obtenemos todos los batches y filtramos los pendientes
-            batches = self.client.batches.list(limit=100)
-            
             pending_batches = []
-            for batch in batches.data:
-                if batch.status in ['validating', 'in_progress', 'finalizing']:
-                    pending_batches.append({
-                        'batch_id': batch.id,
-                        'status': batch.status,
-                        'created_at': batch.created_at,
-                        'metadata': batch.metadata
-                    })
             
+            # Buscar todos los archivos batch_info en el blob storage
+            batch_info_files = self.blob_client.list_blobs_with_prefix(
+                container_name="basedocuments",
+                prefix="",
+                name_filter="batch_info_"
+            )
+            
+            self.logger.info(f"Encontrados {len(batch_info_files)} archivos batch_info")
+            
+            for blob_info in batch_info_files:
+                try:
+                    # Descargar y parsear el archivo batch_info
+                    batch_info_content = self.blob_client.download_blob(
+                        container_name="basedocuments",
+                        blob_name=blob_info['name']
+                    )
+                    
+                    batch_info = json.loads(batch_info_content)
+                    batch_id = batch_info.get('batch_id')
+                    
+                    if not batch_id:
+                        continue
+                    
+                    # Verificar el estado actual del batch en OpenAI
+                    current_status = self.check_batch_status(batch_id)
+                    
+                    # Solo incluir batches que están pendientes o completados pero no procesados
+                    if current_status in ['validating', 'in_progress', 'finalizing', 'completed']:
+                        batch_info['current_status'] = current_status
+                        batch_info['blob_name'] = blob_info['name']
+                        pending_batches.append(batch_info)
+                        
+                        self.logger.info(f"Batch {batch_id} encontrado con estado: {current_status}")
+                    
+                except Exception as file_error:
+                    self.logger.log_error(
+                        message=f"Error procesando archivo batch_info {blob_info.get('name', 'unknown')}: {str(file_error)}",
+                        operation_id=self.operation_id,
+                        error_code="BATCH_INFO_FILE_ERROR"
+                    )
+                    continue
+            
+            # Buscar batches completados en openai_logs que no tengan carpeta de resultados
+            orphaned_batches = self._find_orphaned_completed_batches()
+            pending_batches.extend(orphaned_batches)
+            
+            self.logger.info(f"Total de batches pendientes encontrados: {len(pending_batches)}")
             return pending_batches
             
         except Exception as e:
@@ -202,6 +241,127 @@ class BatchResultsProcessor:
                 error_code="GET_PENDING_BATCHES_ERROR"
             )
             return []
+    
+    def _find_orphaned_completed_batches(self) -> List[Dict[str, Any]]:
+        """
+        Busca batches completados en openai_logs que no tengan carpeta de resultados
+        
+        Returns:
+            Lista de batches huérfanos que necesitan procesamiento
+        """
+        try:
+            orphaned_batches = []
+            
+            # Buscar archivos en openai_logs
+            openai_log_files = self.blob_client.list_blobs_with_prefix(
+                container_name="basedocuments",
+                prefix="",
+                name_filter="openai_logs"
+            )
+            
+            self.logger.info(f"Encontrados {len(openai_log_files)} archivos en openai_logs")
+            
+            for log_file in openai_log_files:
+                try:
+                    # Extraer información del path del archivo
+                    # Formato esperado: CFA009660/processed/openai_logs/batch_xxx.json
+                    path_parts = log_file['name'].split('/')
+                    if len(path_parts) < 4 or 'openai_logs' not in path_parts:
+                        continue
+                    
+                    document_id = path_parts[0]  # CFA009660
+                    batch_filename = path_parts[-1]  # batch_xxx.json
+                    
+                    if not batch_filename.startswith('batch_') or not batch_filename.endswith('.json'):
+                        continue
+                    
+                    # Extraer batch_id del nombre del archivo
+                    batch_id = batch_filename.replace('batch_', '').replace('.json', '')
+                    
+                    # Verificar si existe carpeta de resultados
+                    results_path = f"{document_id}/processed/results/"
+                    has_results = self._check_results_folder_exists(results_path)
+                    
+                    if not has_results:
+                        # Verificar estado del batch en OpenAI
+                        current_status = self.check_batch_status(batch_id)
+                        
+                        if current_status == 'completed':
+                            # Descargar información del batch desde openai_logs
+                            batch_log_content = self.blob_client.download_blob(
+                                container_name="basedocuments",
+                                blob_name=log_file['name']
+                            )
+                            
+                            batch_log = json.loads(batch_log_content)
+                            
+                            orphaned_batch = {
+                                'batch_id': batch_id,
+                                'current_status': current_status,
+                                'document_id': document_id,
+                                'openai_log_path': log_file['name'],
+                                'is_orphaned': True,
+                                'batch_info': batch_log
+                            }
+                            
+                            orphaned_batches.append(orphaned_batch)
+                            
+                            self.logger.info(f"Batch huérfano encontrado: {batch_id} para documento {document_id}")
+                    
+                except Exception as file_error:
+                    self.logger.log_error(
+                        message=f"Error procesando archivo openai_logs {log_file.get('name', 'unknown')}: {str(file_error)}",
+                        operation_id=self.operation_id,
+                        error_code="ORPHANED_BATCH_FILE_ERROR"
+                    )
+                    continue
+            
+            self.logger.info(f"Total de batches huérfanos encontrados: {len(orphaned_batches)}")
+            return orphaned_batches
+            
+        except Exception as e:
+            self.logger.log_error(
+                message=f"Error buscando batches huérfanos: {str(e)}",
+                operation_id=self.operation_id,
+                error_code="FIND_ORPHANED_BATCHES_ERROR"
+            )
+            return []
+    
+    def _check_results_folder_exists(self, results_path: str) -> bool:
+        """
+        Verifica si existe una carpeta de resultados con archivos JSON
+        
+        Args:
+            results_path: Path de la carpeta de resultados
+            
+        Returns:
+            True si existe la carpeta con archivos JSON, False en caso contrario
+        """
+        try:
+            # Buscar archivos JSON en la carpeta de resultados
+            result_files = self.blob_client.list_blobs_with_prefix(
+                container_name="basedocuments",
+                prefix=results_path
+            )
+            
+            # Verificar si hay archivos JSON (auditoria, desembolsos, productos)
+            json_files = [f for f in result_files if f['name'].endswith('.json')]
+            
+            # Debe tener al menos los 3 archivos principales
+            required_files = ['auditoria.json', 'desembolsos.json', 'productos.json']
+            found_files = [f['name'].split('/')[-1] for f in json_files]
+            
+            has_all_required = all(req_file in found_files for req_file in required_files)
+            
+            return has_all_required
+            
+        except Exception as e:
+            self.logger.log_error(
+                message=f"Error verificando carpeta de resultados {results_path}: {str(e)}",
+                operation_id=self.operation_id,
+                error_code="CHECK_RESULTS_FOLDER_ERROR"
+            )
+            return False
     
     def check_batch_status(self, batch_id: str) -> str:
         """
@@ -238,30 +398,55 @@ class BatchResultsProcessor:
             Resultados procesados del batch
         """
         try:
-            # Descargar resultados del batch
-            batch = self.client.batches.retrieve(batch_id)
+            is_orphaned = batch_info.get('is_orphaned', False)
             
-            if not batch.output_file_id:
-                self.logger.warning(f"Batch {batch_id} completado pero sin archivo de salida")
-                return None
-            
-            # Descargar archivo de resultados
-            result_file_response = self.client.files.content(batch.output_file_id)
-            result_content = result_file_response.content
-            
-            # Procesar contenido del archivo
-            results = self._process_batch_results(result_content.decode('utf-8'), batch_id)
-            
-            # Guardar resultados procesados
-            self._save_processed_results(results, batch_id, batch_info)
-            
-            return results
+            if is_orphaned:
+                self.logger.info(f"Procesando batch huérfano {batch_id}")
+                # Para batches huérfanos, descargar desde OpenAI ya que no tenemos los resultados guardados
+                batch = self.client.batches.retrieve(batch_id)
+                
+                if not batch.output_file_id:
+                    self.logger.warning(f"Batch huérfano {batch_id} completado pero sin archivo de salida")
+                    return None
+                
+                # Descargar archivo de resultados desde OpenAI
+                result_file_response = self.client.files.content(batch.output_file_id)
+                result_content = result_file_response.content
+                
+                # Procesar contenido del archivo
+                results = self._process_batch_results(result_content.decode('utf-8'), batch_id)
+                
+                # Guardar resultados procesados
+                self._save_processed_results(results, batch_id, batch_info)
+                
+                self.logger.info(f"Batch huérfano {batch_id} procesado exitosamente")
+                return results
+            else:
+                # Procesamiento normal para batches no huérfanos
+                batch = self.client.batches.retrieve(batch_id)
+                
+                if not batch.output_file_id:
+                    self.logger.warning(f"Batch {batch_id} completado pero sin archivo de salida")
+                    return None
+                
+                # Descargar archivo de resultados
+                result_file_response = self.client.files.content(batch.output_file_id)
+                result_content = result_file_response.content
+                
+                # Procesar contenido del archivo
+                results = self._process_batch_results(result_content.decode('utf-8'), batch_id)
+                
+                # Guardar resultados procesados
+                self._save_processed_results(results, batch_id, batch_info)
+                
+                return results
             
         except Exception as e:
+            error_type = "PROCESS_ORPHANED_BATCH_ERROR" if batch_info.get('is_orphaned', False) else "PROCESS_COMPLETED_BATCH_ERROR"
             self.logger.log_error(
-                message=f"Error procesando batch completado {batch_id}: {str(e)}",
+                message=f"Error procesando batch {'huérfano' if batch_info.get('is_orphaned', False) else 'completado'} {batch_id}: {str(e)}",
                 operation_id=self.operation_id,
-                error_code="PROCESS_COMPLETED_BATCH_ERROR",
+                error_code=error_type,
                 batch_id=batch_id
             )
             return None
