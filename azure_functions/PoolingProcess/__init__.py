@@ -482,12 +482,14 @@ class BatchResultsProcessor:
             batch_info: Información del batch
         """
         try:
-            # Extraer información del proyecto desde batch_info
-            project_name = batch_info.get('project_name')
-            document_name = batch_info.get('document_name')
+            # Extraer información del proyecto desde la metadata del batch
+            metadata = batch_info.get('metadata', {})
+            project_name = metadata.get('project') or metadata.get('project_name')
+            document_name = metadata.get('document') or metadata.get('document_name')
             
             if not project_name:
-                raise ValueError(f"Información de proyecto faltante en batch_info para batch {batch_id}")
+                self.logger.warning(f"No se encontró project_name en metadata del batch {batch_id}. Metadata disponible: {metadata}")
+                raise ValueError(f"Información de proyecto faltante en metadata del batch {batch_id}")
             
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             
@@ -523,10 +525,15 @@ class BatchResultsProcessor:
                     
                     # Guardar archivo separado por prompt
                     prompt_filename = f"{prompt_type}.json"
+                    prompt_content = {
+                        "prompt_type": prompt_type,
+                        "total_results": len(content_list),
+                        "results": content_list
+                    }
                     self.blob_client.save_result(
                         project_name=project_name,
                         result_name=prompt_filename,
-                        content=content_list
+                        content=prompt_content
                     )
                     
                     prompt_files_saved.append(f"{prompt_type}.json ({len(content_list)} elementos)")
