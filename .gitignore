@@ -227,3 +227,9 @@ logs/
 # Test files and outputs
 tests/output/
 tests/logs/
+
+# Test files with secrets (excluded for security)
+azure_functions/tests/check_results.py
+azure_functions/tests/debug_batch.py
+azure_functions/tests/find_batch_info.py
+azure_functions/tests/list_batch_logs.py
