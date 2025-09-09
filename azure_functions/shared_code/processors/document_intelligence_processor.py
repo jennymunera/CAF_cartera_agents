@@ -40,6 +40,9 @@ class DocumentIntelligenceProcessor:
     def _is_document_already_chunked(self, document_name: str, project_name: str) -> bool:
         """Check if a document has already been chunked by looking for chunk files in chunks folder.
         
+        Uses the full document name (without extension) for chunk naming:
+        Example: INI-CFA009660-Anexo3 Inf Revision Final_chunk_000.json
+        
         Args:
             document_name: Name of the document file
             project_name: Name of the project
@@ -49,13 +52,14 @@ class DocumentIntelligenceProcessor:
         """
         try:
             # Check if chunk files exist in processed/chunks folder
-            doc_stem = Path(document_name).stem  # filename without extension
+            # Use full document name without extension for chunk naming
+            document_name_without_ext = Path(document_name).stem
             
-            # Try to find any chunk file for this document
-            chunk_filename = f"{doc_stem}_chunk_1.json"  # Check for first chunk
+            # Try to find any chunk file for this document using the new naming convention
+            chunk_filename = f"{document_name_without_ext}_chunk_000.json"  # Check for first chunk
             
             if self.blob_client.document_exists_in_processed(project_name, "chunks", chunk_filename):
-                logger.info(f"Document already chunked: {document_name}")
+                logger.info(f"Document already chunked with full name: {document_name}")
                 return True
             
             return False
@@ -65,20 +69,25 @@ class DocumentIntelligenceProcessor:
             return False  # If we can't check, assume it needs processing
     
     def _is_document_already_processed(self, document_name: str, project_name: str) -> bool:
-        """Check if a document has already been processed by looking for output files in DI folder or chunks folder.
+        """Check if a document should be skipped from Document Intelligence processing.
+        
+        Logic:
+        1. If document exists in DI folder with valid content -> Skip (return True)
+        2. If document doesn't exist in DI but is already chunked -> Skip (return True) 
+        3. If document doesn't exist in DI and is not chunked -> Process (return False)
         
         Args:
             document_name: Name of the document file
             project_name: Name of the project
             
         Returns:
-            bool: True if document has already been processed or chunked, False otherwise
+            bool: True if document should be skipped, False if it needs DI processing
         """
         try:
-            # First check if document has been processed (DI folder)
             doc_stem = Path(document_name).stem  # filename without extension
             doc_json_filename = f"{doc_stem}.json"
             
+            # STEP 1: Check if document already exists in DI folder
             if self.blob_client.document_exists_in_processed(project_name, "DI", doc_json_filename):
                 # Verify it's a valid JSON with content
                 try:
@@ -86,16 +95,19 @@ class DocumentIntelligenceProcessor:
                     # Check if it has content and wasn't an error
                     metadata = data.get('metadata', {})
                     if metadata.get('processing_status') == 'success' and data.get('content'):
-                        logger.info(f"Document already processed (DI): {document_name}")
+                        logger.info(f"Document already processed in DI folder, skipping: {document_name}")
                         return True
                 except (json.JSONDecodeError, KeyError, FileNotFoundError):
-                    logger.warning(f"Invalid JSON file found, will reprocess: {doc_json_filename}")
-                    # Continue to check chunks
+                    logger.warning(f"Invalid JSON file found in DI folder, will reprocess: {doc_json_filename}")
+                    # Continue to step 2
             
-            # Also check if document has been chunked (chunks folder)
+            # STEP 2: If not in DI, check if document has been chunked
             if self._is_document_already_chunked(document_name, project_name):
+                logger.info(f"Document not in DI but already chunked, skipping DI processing: {document_name}")
                 return True
             
+            # STEP 3: Document not in DI and not chunked -> needs DI processing
+            logger.info(f"Document needs DI processing: {document_name}")
             return False
             
         except Exception as e:
@@ -104,6 +116,9 @@ class DocumentIntelligenceProcessor:
     
     def process_single_document(self, project_name: str, document_name: str, model_id: str = "prebuilt-layout") -> Dict[str, Any]:
         """Processes a single document and extracts its content.
+        
+        Validates if document is already chunked before processing with Document Intelligence.
+        If already chunked, skips DI processing to avoid redundant work.
         
         Args:
             project_name: Name of the project
@@ -114,6 +129,20 @@ class DocumentIntelligenceProcessor:
             Dict with document data and metadata
         """
         try:
+            # Check if document is already chunked before DI processing
+            if self._is_document_already_chunked(document_name, project_name):
+                logger.info(f"Document already chunked, skipping DI processing: {document_name}")
+                return {
+                    "filename": document_name,
+                    "content": "",
+                    "json_data": {},
+                    "metadata": {
+                        "filename": document_name,
+                        "processing_status": "skipped_already_chunked",
+                        "skip_reason": "Document already processed and chunked"
+                    }
+                }
+            
             logger.info(f"Processing document with Document Intelligence: {document_name}")
             
             # Download document from blob storage

@@ -567,6 +567,27 @@ class BlobStorageClient:
         except Exception as e:
             logger.error(f"Error subiendo blob {blob_path}: {str(e)}")
             raise
+
+    def delete_blob(self, blob_path: str) -> None:
+        """
+        Elimina un blob del contenedor configurado.
+
+        Args:
+            blob_path: Ruta completa dentro del contenedor (por ejemplo,
+                       "basedocuments/CAF123/processed/DI/doc.json")
+        """
+        try:
+            blob_client = self.container_client.get_blob_client(blob_path)
+            if blob_client.exists():
+                blob_client.delete_blob(delete_snapshots="include")
+                logger.info(f"Blob eliminado: {blob_path}")
+            else:
+                logger.warning(f"Blob a eliminar no existe: {blob_path}")
+        except ResourceNotFoundError:
+            logger.warning(f"Blob no encontrado al eliminar: {blob_path}")
+        except Exception as e:
+            logger.error(f"Error eliminando blob {blob_path}: {str(e)}")
+            raise
     
     def cleanup_temp_file(self, temp_path: str) -> None:
         """

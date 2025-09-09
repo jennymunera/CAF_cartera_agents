@@ -1,13 +1,12 @@
 import azure.functions as func
 import logging
-import json
 import os
 import sys
 import time
+import json
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional
-from dotenv import load_dotenv
 from openai import AzureOpenAI
 
 # Agregar el directorio padre al path para importar los módulos compartidos
@@ -17,8 +16,34 @@ sys.path.append(str(Path(__file__).parent.parent))
 from shared_code.utils.app_insights_logger import get_logger, generate_operation_id
 from shared_code.utils.blob_storage_client import BlobStorageClient
 
-# Cargar variables de entorno
-load_dotenv()
+def _load_local_settings_env():
+    """Carga azure_functions/local.settings.json a os.environ en entorno local.
+    No se ejecuta en Azure (para no sobrescribir App Settings)."""
+    try:
+        # Detectar si estamos en Azure
+        in_azure = (
+            os.environ.get('AZURE_FUNCTIONS_ENVIRONMENT') is not None or
+            os.environ.get('WEBSITE_SITE_NAME') is not None
+        )
+        if in_azure:
+            return
+        # Ruta a local.settings.json (dos niveles arriba: azure_functions/)
+        settings_path = Path(__file__).parent.parent / 'local.settings.json'
+        if not settings_path.exists():
+            return
+        with open(settings_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        values = data.get('Values', {}) or {}
+        # Sobrescribir en favor de local.settings.json para evitar .env
+        for k, v in values.items():
+            if isinstance(v, str):
+                os.environ[k] = v
+    except Exception:
+        # No interrumpir la función por esto
+        pass
+
+# Cargar variables de entorno desde local.settings.json en local
+_load_local_settings_env()
 
 # Configurar logger
 logger = get_logger("PoolingProcess")
@@ -382,8 +407,8 @@ class BatchResultsProcessor:
         """
         try:
             # Buscar archivos JSON en la carpeta de resultados
+            # Nota: results_path ya incluye 'basedocuments/...'. No pasar container_name para evitar duplicar prefijo.
             result_files = self.blob_client.list_blobs_with_prefix(
-                container_name="basedocuments",
                 prefix=results_path
             )
             
@@ -570,23 +595,26 @@ class BatchResultsProcessor:
             results_by_prompt: Dict para organizar por prompt
         """
         try:
+            import re
             custom_id = result.get('custom_id', '')
             response = result.get('response', {})
             body = response.get('body', {})
             
             # Extraer información del custom_id
-            # Formato: {project}_{document}_{prompt_type}[_chunk_{num}]
+            # Patrones soportados:
+            #  - {project}_{document}_{prompt_type}[_chunk_{num}]
+            #  - {project}_{document}_prompt{n}[_chunk_{num}]  (n ∈ {1,2,3})
             parts = custom_id.split('_')
-            if len(parts) < 3:
+            if len(parts) < 2:
                 self.logger.warning(f"Formato de custom_id inválido: {custom_id}")
                 return
-            
             project_name = parts[0]
+
             prompt_type = None
             document_name = None
             chunk_info = None
-            
-            # Identificar prompt type y document name
+
+            # 1) Intentar con nombres explícitos de prompt
             if 'auditoria' in custom_id:
                 prompt_type = 'auditoria'
                 document_name = custom_id.replace(f"{project_name}_", "").replace("_auditoria", "")
@@ -596,9 +624,29 @@ class BatchResultsProcessor:
             elif 'productos' in custom_id:
                 prompt_type = 'productos'
                 document_name = custom_id.replace(f"{project_name}_", "").replace("_productos", "")
-            
-            # Extraer información de chunk si existe
-            if '_chunk_' in document_name:
+            else:
+                # 2) Soportar patrón _prompt{n}
+                m = re.search(r"_prompt(\d+)", custom_id)
+                if m:
+                    n = m.group(1)
+                    mapping = {'1': 'auditoria', '2': 'desembolsos', '3': 'productos'}
+                    prompt_type = mapping.get(n)
+                    # document_name = entre '{project}_' y '_prompt{n}' (respetando posibles '_chunk_...')
+                    try:
+                        suffix = f"_prompt{n}"
+                        before_suffix = custom_id[: custom_id.rfind(suffix)]
+                        # remove leading '{project}_'
+                        if before_suffix.startswith(f"{project_name}_"):
+                            document_name = before_suffix[len(project_name) + 1 :]
+                        else:
+                            # fallback: quitar hasta el primer '_'
+                            first_us = before_suffix.find('_')
+                            document_name = before_suffix[first_us + 1 :] if first_us >= 0 else before_suffix
+                    except Exception:
+                        document_name = None
+
+            # Extraer información de chunk si existe (proteger None)
+            if document_name and '_chunk_' in document_name:
                 chunk_match = document_name.split('_chunk_')
                 if len(chunk_match) == 2:
                     document_name = chunk_match[0]

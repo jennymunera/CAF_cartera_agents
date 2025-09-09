@@ -3,6 +3,7 @@ import logging
 import json
 import os
 import sys
+import json
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional
@@ -15,6 +16,29 @@ from shared_code.processors.chunking_processor import ChunkingProcessor
 from shared_code.processors.openai_batch_processor import OpenAIBatchProcessor
 from shared_code.utils.app_insights_logger import get_logger, generate_operation_id
 from shared_code.utils.blob_storage_client import BlobStorageClient
+
+# Utilidad local para cargar local.settings.json en entorno local
+def _load_local_settings_env():
+    """Carga azure_functions/local.settings.json a os.environ en entorno local.
+    No se ejecuta en Azure (para no sobrescribir App Settings)."""
+    try:
+        in_azure = os.environ.get('AZURE_FUNCTIONS_ENVIRONMENT') is not None or \
+                   os.environ.get('WEBSITE_SITE_NAME') is not None
+        if in_azure:
+            return
+        settings_path = Path(__file__).parent.parent / 'local.settings.json'
+        if not settings_path.exists():
+            return
+        with open(settings_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        values = data.get('Values', {}) or {}
+        for k, v in values.items():
+            if isinstance(v, str):
+                os.environ[k] = v
+    except Exception:
+        pass
+
+_load_local_settings_env()
 
 # Configurar logger
 logger = get_logger("OpenAiProcess")
@@ -164,7 +188,7 @@ def process_complete_project(project_name: str, queue_type: str):
         di_processor = DocumentIntelligenceProcessor(
             endpoint=di_endpoint,
             api_key=di_key,
-            auto_chunk=True,
+            auto_chunk=False,
             max_tokens=100000
         )
         
@@ -239,6 +263,14 @@ def process_complete_project(project_name: str, queue_type: str):
                         all_saved_files.extend(saved_files)
                         total_chunks_created += len(chunking_result['chunks'])
                         logger.info(f"Document {doc_name} chunked into {len(chunking_result['chunks'])} chunks")
+                        
+                        # Delete original DI JSON file after successful chunking
+                        try:
+                            original_di_path = f"basedocuments/{project_name}/processed/DI/{doc_name}.json"
+                            blob_client.delete_blob(original_di_path)
+                            logger.info(f"Deleted original DI file after successful chunking: {original_di_path}")
+                        except Exception as delete_error:
+                            logger.warning(f"Could not delete original DI file {doc_name}.json: {str(delete_error)}")
                     else:
                         logger.info(f"Document {doc_name} within token limit. No chunking required.")
                         

@@ -55,7 +55,7 @@ class ChunkingProcessor:
             # Obtener el nombre base del documento sin extensión
             doc_stem = Path(document_name).stem
             
-            # Los chunks se guardan con formato {NOMBRE_DOCUMENTO}_chunk_000.json
+            # Los chunks se guardan con formato {NOMBRE_COMPLETO_DOCUMENTO}_chunk_000.json
             # Buscar el primer chunk del documento
             chunk_filename = f"{doc_stem}_chunk_000.json"
             
@@ -478,7 +478,7 @@ class ChunkingProcessor:
                     }
                 }
                 
-                # Crear nombre del chunk con el nombre del documento original
+                # Crear nombre del chunk con el nombre completo del documento original (sin extensión)
                 chunk_filename = f"{doc_stem}_chunk_{chunk['index']:03d}.json"
                 chunk_blob_path = f"basedocuments/{project_name}/processed/chunks/{chunk_filename}"
                 
@@ -488,7 +488,7 @@ class ChunkingProcessor:
                 logger.info(f"Chunk JSON saved to blob: {chunk_blob_path}")
             
             # Guardar metadatos del chunking específicos para este documento
-            metadata_filename = f"{doc_stem}_chunking_metadata.json"
+            metadata_filename = f"{document_name}_chunking_metadata.json"
             metadata_path = f"basedocuments/{project_name}/processed/chunks/{metadata_filename}"
             
             # Agregar información del documento original a los metadatos

@@ -10,13 +10,21 @@ from dotenv import load_dotenv
 
 def send_simple_test_message():
     """Enviar mensaje de prueba simple al Service Bus."""
-    # Cargar variables de entorno desde el directorio azure_functions
-    env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
-    load_dotenv(env_path)
+    # Cargar variables de entorno desde local.settings.json
+    import json
+    settings_path = os.path.join(os.path.dirname(__file__), '..', 'local.settings.json')
     
-    # Configuración del Service Bus
-    connection_string = os.getenv('SERVICEBUS_CONNECTION_STRING') or os.getenv('ServiceBusConnection')
-    queue_name = os.getenv('SERVICEBUS_QUEUE_NAME') or os.getenv('ServiceBusQueueName', 'recoaudit-queue')
+    try:
+        with open(settings_path, 'r') as f:
+            settings = json.load(f)
+            values = settings.get('Values', {})
+    except FileNotFoundError:
+        print(f"❌ No se encontró el archivo local.settings.json en {settings_path}")
+        return
+    
+    # Configuración del Service Bus usando las variables de local.settings.json
+    connection_string = values.get('SERVICEBUS_CONNECTION_STRING') or values.get('ServiceBusConnection') or values.get('ServiceBusConnectionString')
+    queue_name = values.get('SERVICEBUS_QUEUE_NAME') or values.get('ServiceBusQueueName', 'recoaudit-queue')
     
     if not connection_string:
         print("❌ SERVICEBUS_CONNECTION_STRING no configurado")
