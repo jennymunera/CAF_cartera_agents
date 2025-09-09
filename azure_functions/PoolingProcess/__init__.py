@@ -185,12 +185,34 @@ class BatchResultsProcessor:
         try:
             pending_batches = []
             
-            # Buscar todos los archivos batch_info en el blob storage
-            batch_info_files = self.blob_client.list_blobs_with_prefix(
-                container_name="basedocuments",
-                prefix="",
-                name_filter="batch_info_"
+            # Buscar archivos batch_info en las rutas específicas de cada proyecto
+            # Primero obtener lista de proyectos explorando basedocuments/
+            project_prefixes = self.blob_client.list_blobs_with_prefix(
+                prefix="basedocuments/"
             )
+            
+            # Extraer nombres de proyectos únicos
+            projects = set()
+            for blob_info in project_prefixes:
+                path_parts = blob_info['name'].split('/')
+                if len(path_parts) >= 2:
+                    project_name = path_parts[1]  # basedocuments/{project}/...
+                    projects.add(project_name)
+            
+            self.logger.info(f"Proyectos encontrados: {list(projects)}")
+            
+            # Buscar archivos batch_info en cada proyecto
+            batch_info_files = []
+            for project in projects:
+                project_prefix = f"basedocuments/{project}/processed/openai_logs/"
+                project_blobs = self.blob_client.list_blobs_with_prefix(
+                    prefix=project_prefix
+                )
+                
+                for blob_info in project_blobs:
+                    blob_name = blob_info['name']
+                    if 'batch_info_' in blob_name and blob_name.endswith('.json'):
+                        batch_info_files.append(blob_info)
             
             self.logger.info(f"Encontrados {len(batch_info_files)} archivos batch_info")
             
@@ -198,7 +220,7 @@ class BatchResultsProcessor:
                 try:
                     # Descargar y parsear el archivo batch_info
                     batch_info_content = self.blob_client.download_blob(
-                        container_name="basedocuments",
+                        container_name=None,
                         blob_name=blob_info['name']
                     )
                     
@@ -252,61 +274,82 @@ class BatchResultsProcessor:
         try:
             orphaned_batches = []
             
-            # Buscar archivos en openai_logs
-            openai_log_files = self.blob_client.list_blobs_with_prefix(
-                container_name="basedocuments",
-                prefix="",
-                name_filter="openai_logs"
+            # Buscar archivos en openai_logs usando la estructura correcta
+            # Primero obtener lista de proyectos
+            project_prefixes = self.blob_client.list_blobs_with_prefix(
+                prefix="basedocuments/"
             )
+            
+            # Extraer nombres de proyectos únicos
+            projects = set()
+            for blob_info in project_prefixes:
+                path_parts = blob_info['name'].split('/')
+                if len(path_parts) >= 2:
+                    project_name = path_parts[1]
+                    projects.add(project_name)
+            
+            # Buscar archivos en openai_logs de cada proyecto
+            openai_log_files = []
+            for project in projects:
+                openai_logs_prefix = f"basedocuments/{project}/processed/openai_logs/"
+                project_logs = self.blob_client.list_blobs_with_prefix(
+                    prefix=openai_logs_prefix
+                )
+                openai_log_files.extend(project_logs)
             
             self.logger.info(f"Encontrados {len(openai_log_files)} archivos en openai_logs")
             
             for log_file in openai_log_files:
                 try:
                     # Extraer información del path del archivo
-                    # Formato esperado: CFA009660/processed/openai_logs/batch_xxx.json
+                    # Formato esperado: basedocuments/{project}/processed/openai_logs/batch_info_xxx.json
                     path_parts = log_file['name'].split('/')
-                    if len(path_parts) < 4 or 'openai_logs' not in path_parts:
+                    if len(path_parts) < 5 or 'openai_logs' not in path_parts:
                         continue
                     
-                    document_id = path_parts[0]  # CFA009660
-                    batch_filename = path_parts[-1]  # batch_xxx.json
+                    project_name = path_parts[1]  # basedocuments/{project}/...
+                    batch_filename = path_parts[-1]  # batch_info_xxx.json
                     
-                    if not batch_filename.startswith('batch_') or not batch_filename.endswith('.json'):
+                    # Filtrar archivos que contengan "batch_info_" y terminen en ".json"
+                    if not (batch_filename.startswith('batch_info_') and batch_filename.endswith('.json')):
                         continue
                     
-                    # Extraer batch_id del nombre del archivo
-                    batch_id = batch_filename.replace('batch_', '').replace('.json', '')
+                    # Descargar y parsear el archivo batch_info para extraer batch_id del contenido
+                    batch_info_content = self.blob_client.download_blob(
+                        container_name=None,
+                        blob_name=log_file['name']
+                    )
                     
-                    # Verificar si existe carpeta de resultados
-                    results_path = f"{document_id}/processed/results/"
+                    batch_info = json.loads(batch_info_content)
+                    batch_id = batch_info.get('batch_id')
+                    
+                    if not batch_id:
+                        self.logger.warning(f"No se encontró batch_id en archivo {batch_filename}")
+                        continue
+                    
+                    # Verificar si existe carpeta de resultados (solo 1 carpeta para todo el proyecto)
+                    results_path = f"basedocuments/{project_name}/results/"
                     has_results = self._check_results_folder_exists(results_path)
+                    
+                    self.logger.info(f"Verificando resultados para batch {batch_id}: path={results_path}, existe={has_results}")
                     
                     if not has_results:
                         # Verificar estado del batch en OpenAI
                         current_status = self.check_batch_status(batch_id)
                         
                         if current_status == 'completed':
-                            # Descargar información del batch desde openai_logs
-                            batch_log_content = self.blob_client.download_blob(
-                                container_name="basedocuments",
-                                blob_name=log_file['name']
-                            )
-                            
-                            batch_log = json.loads(batch_log_content)
-                            
                             orphaned_batch = {
                                 'batch_id': batch_id,
                                 'current_status': current_status,
-                                'document_id': document_id,
+                                'project_name': project_name,
                                 'openai_log_path': log_file['name'],
                                 'is_orphaned': True,
-                                'batch_info': batch_log
+                                'batch_info': batch_info
                             }
                             
                             orphaned_batches.append(orphaned_batch)
                             
-                            self.logger.info(f"Batch huérfano encontrado: {batch_id} para documento {document_id}")
+                            self.logger.info(f"Batch huérfano encontrado: {batch_id} para proyecto {project_name}")
                     
                 except Exception as file_error:
                     self.logger.log_error(
@@ -667,9 +710,13 @@ class BatchResultsProcessor:
             batch_info: Información del batch
         """
         try:
-            # Extraer información del proyecto desde la metadata del batch
+            # Extraer información del proyecto desde la metadata del batch o directamente del batch_info
             metadata = batch_info.get('metadata', {})
-            project_name = metadata.get('project') or metadata.get('project_name')
+            project_name = (
+                batch_info.get('project_name') or  # Para batches huérfanos
+                metadata.get('project') or 
+                metadata.get('project_name')
+            )
             document_name = metadata.get('document') or metadata.get('document_name')
             
             if not project_name:

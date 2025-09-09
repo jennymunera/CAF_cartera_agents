@@ -65,6 +65,7 @@ if [ "$USE_PREBUILD" = "0" ]; then
     --resource-group "$RESOURCE_GROUP" \
     --src "$DEPLOYMENT_ZIP" \
     --build-remote true \
+    --timeout 1200 \
     --verbose
 else
   # Sin Oryx (subimos paquete listo)
@@ -72,7 +73,9 @@ else
     -g "$RESOURCE_GROUP" -n "$FUNCTION_APP_NAME" \
     --settings SCM_DO_BUILD_DURING_DEPLOYMENT=false ENABLE_ORYX_BUILD=false >/dev/null
   az webapp deployment source config-zip \
-    -g "$RESOURCE_GROUP" -n "$FUNCTION_APP_NAME" --src "$DEPLOYMENT_ZIP" --verbose
+    -g "$RESOURCE_GROUP" -n "$FUNCTION_APP_NAME" --src "$DEPLOYMENT_ZIP" \
+    --timeout 1200 \
+    --verbose
 fi
 
 echo "✅ Despliegue enviado. Consultando logs..."
