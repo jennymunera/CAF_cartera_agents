@@ -1,4 +1,9 @@
+#!/usr/bin/env bash
 set -euo pipefail
+
+# Always run from this script's directory so relative paths work
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 FUNCTION_APP_NAME="azfunc-analisis-MVP-CARTERA-CR"
 RESOURCE_GROUP="RG-POC-CARTERA-CR"
@@ -17,7 +22,7 @@ else
 fi
 
 # 1) Validaciones de raíz
-[ -f "host.json" ] || { echo "❌ host.json no encontrado. Ejecuta desde azure_functions/"; exit 1; }
+[ -f "host.json" ] || { echo "❌ host.json no encontrado en $(pwd)"; exit 1; }
 [ -f "requirements.txt" ] || { echo "❌ requirements.txt no encontrado"; exit 1; }
 [ -d "OpenAiProcess" ] || { echo "❌ Falta carpeta OpenAiProcess/"; exit 1; }
 [ -d "PoolingProcess" ] || { echo "❌ Falta carpeta PoolingProcess/"; exit 1; }
@@ -39,9 +44,24 @@ fi
 
 # 4) Armar ZIP (sin venv local ni __pycache__)
 echo "📦 Empaquetando..."
-zip -r "$DEPLOYMENT_ZIP" host.json requirements.txt .funcignore \
-  OpenAiProcess/ PoolingProcess/ shared_code/ \
-  "prompt Auditoria.txt" "prompt Desembolsos.txt" "prompt Productos.txt" \
+# Construir la lista de archivos a incluir de forma segura
+ZIP_FILES=(
+  host.json
+  requirements.txt
+  OpenAiProcess/
+  PoolingProcess/
+  shared_code/
+  "prompt Auditoria.txt"
+  "prompt Desembolsos.txt"
+  "prompt Productos.txt"
+)
+
+# Incluir .funcignore solo si existe para evitar warnings de zip
+if [[ -f .funcignore ]]; then
+  ZIP_FILES+=(.funcignore)
+fi
+
+zip -r "$DEPLOYMENT_ZIP" "${ZIP_FILES[@]}" \
   -x "*/__pycache__/*" ".venv/*" "venv/*" ".python_packages/*" "local.settings.json"
 
 # Si USE_PREBUILD=1, agrega .python_packages al ZIP

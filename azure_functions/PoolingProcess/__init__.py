@@ -208,7 +208,7 @@ class BatchResultsProcessor:
             Lista de información de batches pendientes
         """
         try:
-            pending_batches = []
+            pending_batches: List[Dict[str, Any]] = []
             
             # Buscar archivos batch_info en las rutas específicas de cada proyecto
             # Primero obtener lista de proyectos explorando basedocuments/
@@ -255,13 +255,33 @@ class BatchResultsProcessor:
                     if not batch_id:
                         continue
                     
+                    # Inferir project_name desde la ruta si no viene en el JSON
+                    project_name = batch_info.get('project_name')
+                    if not project_name:
+                        try:
+                            path_parts = blob_info['name'].split('/')
+                            if len(path_parts) >= 2:
+                                project_name = path_parts[1]
+                        except Exception:
+                            project_name = None
+
                     # Verificar el estado actual del batch en OpenAI
                     current_status = self.check_batch_status(batch_id)
                     
-                    # Solo incluir batches que están pendientes o completados pero no procesados
+                    # Si ya está 'completed' y existe marcador por batch, saltar para evitar reprocesos
+                    if current_status == 'completed' and project_name and \
+                       self._batch_results_marker_exists(project_name, batch_id):
+                        self.logger.info(
+                            f"Marcador existente para batch {batch_id} en proyecto {project_name}; omitiendo de pendientes"
+                        )
+                        continue
+
+                    # Solo incluir batches que están pendientes o completados sin marcador
                     if current_status in ['validating', 'in_progress', 'finalizing', 'completed']:
                         batch_info['current_status'] = current_status
                         batch_info['blob_name'] = blob_info['name']
+                        if project_name:
+                            batch_info['project_name'] = project_name
                         pending_batches.append(batch_info)
                         
                         self.logger.info(f"Batch {batch_id} encontrado con estado: {current_status}")
@@ -274,12 +294,33 @@ class BatchResultsProcessor:
                     )
                     continue
             
-            # Buscar batches completados en openai_logs que no tengan carpeta de resultados
+            # Buscar batches completados en openai_logs que no tengan carpeta de resultados por batch_id (marcador)
             orphaned_batches = self._find_orphaned_completed_batches()
-            pending_batches.extend(orphaned_batches)
-            
-            self.logger.info(f"Total de batches pendientes encontrados: {len(pending_batches)}")
-            return pending_batches
+
+            # Desduplicar por batch_id, fusionando info de huérfanos
+            merged: Dict[str, Dict[str, Any]] = {}
+            for entry in pending_batches:
+                bid = entry.get('batch_id')
+                if not bid:
+                    continue
+                merged[bid] = dict(entry)
+            for orphan in orphaned_batches:
+                bid = orphan.get('batch_id')
+                if not bid:
+                    continue
+                if bid in merged:
+                    # Conservar current_status del entry original, marcar orphaned si aplica
+                    merged[bid]['is_orphaned'] = True
+                    # Preservar project_name y rutas si no estaban
+                    for k in ('project_name', 'openai_log_path', 'blob_name'):
+                        if k not in merged[bid] and k in orphan:
+                            merged[bid][k] = orphan[k]
+                else:
+                    merged[bid] = dict(orphan)
+
+            final_list = list(merged.values())
+            self.logger.info(f"Total de batches pendientes encontrados: {len(final_list)}")
+            return final_list
             
         except Exception as e:
             self.logger.log_error(
@@ -352,16 +393,17 @@ class BatchResultsProcessor:
                         self.logger.warning(f"No se encontró batch_id en archivo {batch_filename}")
                         continue
                     
-                    # Verificar si existe carpeta de resultados (solo 1 carpeta para todo el proyecto)
-                    results_path = f"basedocuments/{project_name}/results/"
-                    has_results = self._check_results_folder_exists(results_path)
-                    
-                    self.logger.info(f"Verificando resultados para batch {batch_id}: path={results_path}, existe={has_results}")
-                    
-                    if not has_results:
+                    # Nuevo criterio: verificar marcador por batch_id bajo results/batches/{batch_id}/processed.json
+                    has_marker = self._batch_results_marker_exists(project_name, batch_id)
+
+                    self.logger.info(
+                        f"Verificando marcador para batch {batch_id}: project={project_name}, exists={has_marker}"
+                    )
+
+                    if not has_marker:
                         # Verificar estado del batch en OpenAI
                         current_status = self.check_batch_status(batch_id)
-                        
+
                         if current_status == 'completed':
                             orphaned_batch = {
                                 'batch_id': batch_id,
@@ -371,10 +413,12 @@ class BatchResultsProcessor:
                                 'is_orphaned': True,
                                 'batch_info': batch_info
                             }
-                            
+
                             orphaned_batches.append(orphaned_batch)
-                            
-                            self.logger.info(f"Batch huérfano encontrado: {batch_id} para proyecto {project_name}")
+
+                            self.logger.info(
+                                f"Batch huérfano encontrado (sin marcador): {batch_id} para proyecto {project_name}"
+                            )
                     
                 except Exception as file_error:
                     self.logger.log_error(
@@ -428,6 +472,34 @@ class BatchResultsProcessor:
                 message=f"Error verificando carpeta de resultados {results_path}: {str(e)}",
                 operation_id=self.operation_id,
                 error_code="CHECK_RESULTS_FOLDER_ERROR"
+            )
+            return False
+
+    def _batch_results_marker_exists(self, project_name: str, batch_id: str) -> bool:
+        """
+        Verifica si existe el marcador de resultados para un batch específico.
+        El marcador se guarda en: basedocuments/{project}/results/batches/{batch_id}/processed.json
+
+        Args:
+            project_name: Proyecto
+            batch_id: ID del batch
+
+        Returns:
+            True si existe el marcador, False en caso contrario
+        """
+        try:
+            marker_path = f"basedocuments/{project_name}/results/batches/{batch_id}/processed.json"
+            files = self.blob_client.list_blobs_with_prefix(prefix=marker_path)
+            for f in files:
+                if f.get('name') == marker_path:
+                    return True
+            return False
+        except Exception as e:
+            self.logger.log_error(
+                message=f"Error verificando marcador de batch {batch_id}: {str(e)}",
+                operation_id=self.operation_id,
+                error_code="CHECK_BATCH_MARKER_ERROR",
+                batch_id=batch_id
             )
             return False
     
@@ -486,6 +558,8 @@ class BatchResultsProcessor:
                 
                 # Guardar resultados procesados
                 self._save_processed_results(results, batch_id, batch_info)
+                # Guardar marcador por batch
+                self._save_batch_processed_marker(batch_id, batch_info, results)
                 
                 self.logger.info(f"Batch huérfano {batch_id} procesado exitosamente")
                 return results
@@ -506,6 +580,8 @@ class BatchResultsProcessor:
                 
                 # Guardar resultados procesados
                 self._save_processed_results(results, batch_id, batch_info)
+                # Guardar marcador por batch
+                self._save_batch_processed_marker(batch_id, batch_info, results)
                 
                 return results
             
@@ -518,6 +594,52 @@ class BatchResultsProcessor:
                 batch_id=batch_id
             )
             return None
+
+    def _save_batch_processed_marker(self, batch_id: str, batch_info: Dict[str, Any], results: Dict[str, Any]) -> None:
+        """
+        Guarda un marcador de procesamiento por batch bajo results/batches/{batch_id}/processed.json
+        con un resumen mínimo y referencias a archivos generados a nivel de proyecto.
+        """
+        try:
+            project_name = batch_info.get('project_name') or batch_info.get('batch_info', {}).get('project_name')
+            if not project_name:
+                # Intentar deducir desde blob_name u openai_log_path si existe
+                blob_name = batch_info.get('blob_name') or batch_info.get('openai_log_path', '')
+                parts = blob_name.split('/')
+                if len(parts) >= 2:
+                    project_name = parts[1]
+            if not project_name:
+                self.logger.warning(f"No se pudo determinar project_name para guardar marcador de batch {batch_id}")
+                return
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            marker_content = {
+                "batch_id": batch_id,
+                "project_name": project_name,
+                "processed_at": timestamp,
+                "statistics": {
+                    "total_processed": results.get('total_processed', 0),
+                    "successful_responses": results.get('successful_responses', 0),
+                    "failed_responses": results.get('failed_responses', 0),
+                    "success_rate": results.get('success_rate', 0)
+                }
+            }
+
+            # Guardar bajo results/batches/{batch_id}/processed.json
+            result_name = f"batches/{batch_id}/processed.json"
+            self.blob_client.save_result(
+                project_name=project_name,
+                result_name=result_name,
+                content=marker_content
+            )
+            self.logger.info(f"Marcador de batch guardado: basedocuments/{project_name}/results/{result_name}")
+        except Exception as e:
+            self.logger.log_error(
+                message=f"Error guardando marcador de batch {batch_id}: {str(e)}",
+                operation_id=self.operation_id,
+                error_code="SAVE_BATCH_MARKER_ERROR",
+                batch_id=batch_id
+            )
     
     def _process_batch_results(self, content: str, batch_id: str) -> Dict[str, Any]:
         """
@@ -771,10 +893,8 @@ class BatchResultsProcessor:
                 self.logger.warning(f"No se encontró project_name en metadata del batch {batch_id}. Metadata disponible: {metadata}")
                 raise ValueError(f"Información de proyecto faltante en metadata del batch {batch_id}")
             
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            
-            # Guardar resultados organizados por documento
-            results_by_document_filename = f"results_by_document_{project_name}_{timestamp}.json"
+            # Usar nombres deterministas por batch para evitar duplicados por timestamps
+            results_by_document_filename = f"results_by_document_{batch_id}.json"
             self.blob_client.save_result(
                 project_name=project_name,
                 result_name=results_by_document_filename,
@@ -782,7 +902,7 @@ class BatchResultsProcessor:
             )
             
             # Guardar resultados organizados por prompt
-            results_by_prompt_filename = f"results_by_prompt_{project_name}_{timestamp}.json"
+            results_by_prompt_filename = f"results_by_prompt_{batch_id}.json"
             self.blob_client.save_result(
                 project_name=project_name,
                 result_name=results_by_prompt_filename,
@@ -841,7 +961,7 @@ class BatchResultsProcessor:
                 }
             }
             
-            summary_filename = f"batch_summary_{project_name}_{timestamp}.json"
+            summary_filename = f"batch_summary_{batch_id}.json"
             self.blob_client.save_result(
                 project_name=project_name,
                 result_name=summary_filename,
