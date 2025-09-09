@@ -111,95 +111,165 @@ class OpenAIProcessor:
             self.logger.info(f"🤖 Procesando con Azure OpenAI: {document_name}")
             
             # Prompt de Auditoría
-            prompt = """Eres un Analista experto en documentos de auditoria, debes Extraer todas las variables del formato Auditorías priorizando archivos IXP, normalizando los campos categóricos y emitir un concepto final (Favorable / Favorable con reservas / Desfavorable) con justificación.
-
-Prioridad documental: 
-
-Solo documentos cuyo nombre inicia con IXP.
-
-Si hay múltiples versiones, usa la más reciente y registra cambios en Observación.
-
-Checklist anti–"NO EXTRAIDO" (agotar antes de rendirse): 
-
-Portada / primeras 2 páginas → "Código de operación", CFA/CFX.
-
-Índice → saltos a "Opinión", "Dictamen", "Conclusión".
-
-Secciones válidas de concepto → Opinión, Opinión sin reserva/sin salvedades, Dictamen, Conclusión de auditoría (acepta variantes ES/PT/EN: "Opinion", "Unqualified opinion", "Parecer", "Sem ressalvas").
-
-Tablas/seguimiento administrativo → Estado del informe, Fecha de vencimiento, Fecha de cambio de estado (según SSC o tabla del doc).
-
-Encabezados/pies → "Última revisión/Actualización".
-
-Anexos del auditor / "Carta de gerencia".
-
-Elegir versión más reciente; Observación = campo: valor_anterior → valor_nuevo (doc_origen → doc_nuevo).
-
-Dónde buscar (por campo): 
-
-Código CFA: portada/primeras páginas ("Código de operación", "CFA", "codigo CFA").
-
-código CFX: cerca de CFA, diferente al CFA, en cabeceras administrativas.
-
-Estado del informe: tablas/seguimiento (normal, vencido, dispensado, satisfecho).
-
-Si se entregó informe de auditoría externo: menciones explícitas de entrega/recepción/dispensa.
-
-Concepto Control interno: solo en Opinión/Dictamen/Conclusión; frases sobre suficiencia/deficiencias de control interno.
-
-Concepto licitación de proyecto: en Opinión/Dictamen; adquisiciones/contrataciones/procurement.
-
-Concepto uso de recursos: en Opinión/Dictamen; conformidad/desvíos respecto al plan.
-
-Concepto sobre unidad ejecutora: en Opinión/Dictamen; desempeño de la UGP.
-
-Fecha de vencimiento / cambio de estado: tablas administrativas/SSC.
-
-Fecha de extracción: ahora (fecha-hora del sistema).
-
-Fecha de última revisión: encabezados/pies ("Última revisión/Actualización").
-
-status auditoría: "disponible/ no disponible/ no requerido/ pendiente".
-
-Nombre del archivo revisado: archivo base del dato final.
-
-texto justificación: 1–2 frases de Opinión/Dictamen que sustenten los conceptos.
-
-Observación: diferencias entre versiones.
-
-Sinónimos útiles (flexibles)
-
-Estado: estado, estatus, situación, condición.
-
-Opinión: dictamen, conclusiones, parecer.
-
-Entrega informe externo: entregado, recibido, presentado, publicado en SSC, dispensa.
-
-Niveles de confianza (adjúntalos por campo): 
-
-EXTRAIDO_DIRECTO (evidencia literal), EXTRAIDO_INFERIDO (sinónimo/contexto), NO_EXTRAIDO.
-Formato por valor: valor|NIVEL_CONFIANZA.
-
-Normalización + Concepto: 
-
-estado_informe_norm ∈ {dispensado, normal, satisfecho, vencido} o null.
-
-informe_externo_entregado_norm ∈ {a tiempo, dispensado, vencido} o null.
-
-concepto_control_interno_norm, concepto_licitacion_norm, concepto_uso_recursos_norm, concepto_unidad_ejecutora_norm ∈ {Favorable, Favorable con reservas, Desfavorable, no se menciona}.
-
-concepto_final ∈ {Favorable, Favorable con reservas, Desfavorable} + concepto_rationale (1–2 frases con cita corta).
-
-Few-shot (mapeos rápidos): 
-
-"sin salvedades… no reveló deficiencias significativas de control interno" → Control interno = Favorable.
-
-"excepto por…" / "con salvedades…" → concepto = Favorable con reservas.
-
-"se sostienen las observaciones / deficiencias" → concepto = Desfavorable.
-
-Salida en JSON con la siguiente estructura (todas las claves; si falta evidencia, "NO EXTRAIDO")
-Código CFA, Estado del informe, Si se entregó informe de auditoría externo, Concepto Control interno, Concepto licitación de proyecto, Concepto uso de recursos financieros según lo planificado, Concepto sobre unidad ejecutora, Fecha de vencimiento, Fecha de cambio del estado del informe, Fecha de extracción, Fecha de ultima revisión, status auditoría, código CFX, Nombre del archivo revisado, texto justificación, Observación, estado_informe_norm, informe_externo_entregado_norm, concepto_control_interno_norm, concepto_licitacion_norm, concepto_uso_recursos_norm, concepto_unidad_ejecutora_norm, concepto_final, concepto_rationale"""
+            prompt = f"""
+            **ROL:** Eres un experto analista de cartera especializado en auditoría de proyectos de desarrollo.
+            
+            **PRIORIDAD DE DOCUMENTOS:**
+            1. Informes de auditoría
+            2. Informes de supervisión
+            3. Informes de seguimiento
+            4. Informes de evaluación
+            5. Otros documentos relacionados con auditoría
+            
+            **CHECKLIST DE AUDITORÍA:**
+            - ✅ Identificar hallazgos de auditoría
+            - ✅ Extraer recomendaciones
+            - ✅ Verificar estado de implementación
+            - ✅ Evaluar riesgos identificados
+            - ✅ Analizar medidas correctivas
+            
+            **INSTRUCCIONES DE EXTRACCIÓN:**
+            1. Extrae TODOS los hallazgos de auditoría mencionados
+            2. Para cada hallazgo, identifica:
+               - Descripción del hallazgo
+               - Nivel de criticidad (Alto/Medio/Bajo)
+               - Recomendación asociada
+               - Estado de implementación
+               - Fecha límite (si aplica)
+            3. Identifica riesgos operacionales, financieros o de cumplimiento
+            4. Extrae medidas correctivas propuestas o implementadas
+            
+            **REGLAS DE NORMALIZACIÓN:**
+            - Fechas en formato YYYY-MM-DD
+            - Montos en USD (convertir si es necesario)
+            - Estados: "Pendiente", "En Proceso", "Implementado", "Vencido"
+            - Criticidad: "Alto", "Medio", "Bajo"
+            
+            **REGLAS CRÍTICAS PARA JSON:**
+            - SIEMPRE usa comillas dobles para strings
+            - NUNCA uses comillas simples dentro de strings
+            - Escapa caracteres especiales: \" \n \t \\
+            - NO incluyas saltos de línea dentro de strings
+            - Reemplaza saltos de línea con espacios
+            - Limita strings a máximo 200 caracteres
+            
+            **NIVEL DE CONFIANZA:**
+            - Alto (0.9-1.0): Información explícita y clara
+            - Medio (0.7-0.8): Información inferida con contexto
+            - Bajo (0.5-0.6): Información parcial o ambigua
+            
+            **ESQUEMA DE SALIDA JSON:**
+            {{
+                "documento_info": {{
+                    "nombre_documento": "string",
+                    "tipo_documento": "string",
+                    "fecha_documento": "YYYY-MM-DD",
+                    "proyecto": "string"
+                }},
+                "hallazgos_auditoria": [
+                    {{
+                        "id_hallazgo": "string",
+                        "descripcion": "string",
+                        "criticidad": "Alto|Medio|Bajo",
+                        "categoria": "string",
+                        "recomendacion": "string",
+                        "estado_implementacion": "Pendiente|En Proceso|Implementado|Vencido",
+                        "fecha_limite": "YYYY-MM-DD",
+                        "responsable": "string",
+                        "nivel_confianza": 0.0
+                    }}
+                ],
+                "riesgos_identificados": [
+                    {{
+                        "tipo_riesgo": "Operacional|Financiero|Cumplimiento|Reputacional",
+                        "descripcion": "string",
+                        "impacto": "Alto|Medio|Bajo",
+                        "probabilidad": "Alto|Medio|Bajo",
+                        "medidas_mitigacion": "string",
+                        "nivel_confianza": 0.0
+                    }}
+                ],
+                "medidas_correctivas": [
+                    {{
+                        "descripcion": "string",
+                        "estado": "Propuesta|En Implementación|Implementada",
+                        "fecha_implementacion": "YYYY-MM-DD",
+                        "responsable": "string",
+                        "nivel_confianza": 0.0
+                    }}
+                ],
+                "resumen_auditoria": {{
+                    "total_hallazgos": 0,
+                    "hallazgos_criticos": 0,
+                    "porcentaje_implementacion": 0.0,
+                    "principales_riesgos": "string"
+                }}
+            }}
+            
+            **EJEMPLO DE SALIDA:**
+            {{
+                "documento_info": {{
+                    "nombre_documento": "Informe de Auditoría Proyecto XYZ",
+                    "tipo_documento": "Informe de Auditoría",
+                    "fecha_documento": "2023-06-15",
+                    "proyecto": "CFA009757"
+                }},
+                "hallazgos_auditoria": [
+                    {{
+                        "id_hallazgo": "H001",
+                        "descripcion": "Falta de documentación en procesos de adquisición",
+                        "criticidad": "Alto",
+                        "categoria": "Cumplimiento",
+                        "recomendacion": "Implementar procedimiento documentado para adquisiciones",
+                        "estado_implementacion": "En Proceso",
+                        "fecha_limite": "2023-09-30",
+                        "responsable": "Gerencia de Adquisiciones",
+                        "nivel_confianza": 0.9
+                    }}
+                ],
+                "riesgos_identificados": [
+                    {{
+                        "tipo_riesgo": "Cumplimiento",
+                        "descripcion": "Incumplimiento de normativas de adquisición",
+                        "impacto": "Alto",
+                        "probabilidad": "Medio",
+                        "medidas_mitigacion": "Capacitación del personal y actualización de procedimientos",
+                        "nivel_confianza": 0.8
+                    }}
+                ],
+                "medidas_correctivas": [
+                    {{
+                        "descripcion": "Desarrollo de manual de procedimientos de adquisición",
+                        "estado": "En Implementación",
+                        "fecha_implementacion": "2023-08-31",
+                        "responsable": "Consultor Externo",
+                        "nivel_confianza": 0.9
+                    }}
+                ],
+                "resumen_auditoria": {{
+                    "total_hallazgos": 5,
+                    "hallazgos_criticos": 2,
+                    "porcentaje_implementacion": 60.0,
+                    "principales_riesgos": "Riesgos de cumplimiento en procesos de adquisición y gestión financiera"
+                }}
+            }}
+            
+            **DOCUMENTO A ANALIZAR:**
+            {document_content.get('content', '')}
+            
+            **METADATOS DEL DOCUMENTO:**
+            - Nombre: {document_content.get('filename', 'N/A')}
+            - Proyecto: {document_content.get('project_name', 'N/A')}
+            - Páginas: {document_content.get('pages', 'N/A')}
+            
+            **INSTRUCCIONES FINALES:**
+            1. Analiza el documento y extrae información de auditoría
+            2. Responde ÚNICAMENTE con JSON válido
+            3. NO incluyas texto adicional antes o después del JSON
+            4. Asegúrate de que todas las comillas estén correctamente escapadas
+            5. Si no encuentras información, usa arrays vacíos []
+            6. Verifica que el JSON sea válido antes de responder
+            """
             
             # Llamada a Azure OpenAI
             response = self.client.chat.completions.create(
@@ -224,13 +294,75 @@ Código CFA, Estado del informe, Si se entregó informe de auditoría externo, C
             
             # Parsear JSON de la respuesta del LLM
             try:
-                # Extraer JSON de la respuesta (puede venir con ```json o sin formato)
-                json_start = ai_response.find('{')
-                json_end = ai_response.rfind('}') + 1
+                # Limpiar la respuesta primero
+                cleaned_response = ai_response.strip()
+                
+                # Remover bloques de código markdown si existen
+                if '```json' in cleaned_response:
+                    start = cleaned_response.find('```json') + 7
+                    end = cleaned_response.find('```', start)
+                    if end != -1:
+                        cleaned_response = cleaned_response[start:end].strip()
+                elif '```' in cleaned_response:
+                    start = cleaned_response.find('```') + 3
+                    end = cleaned_response.find('```', start)
+                    if end != -1:
+                        cleaned_response = cleaned_response[start:end].strip()
+                
+                # Extraer JSON de la respuesta
+                json_start = cleaned_response.find('{')
+                json_end = cleaned_response.rfind('}') + 1
                 
                 if json_start != -1 and json_end > json_start:
-                    json_content = ai_response[json_start:json_end]
-                    parsed_json = json.loads(json_content)
+                    json_content = cleaned_response[json_start:json_end]
+                    
+                    # Limpiar caracteres problemáticos
+                    json_content = json_content.replace('\n', ' ').replace('\t', ' ')
+                    json_content = ' '.join(json_content.split())  # Normalizar espacios
+                    
+                    # Intentar parsear JSON
+                    try:
+                        parsed_json = json.loads(json_content)
+                    except json.JSONDecodeError as parse_error:
+                        # Intentar reparar JSON común
+                        self.logger.warning(f"⚠️ Intentando reparar JSON para {document_name}: {str(parse_error)}")
+                        
+                        # Reparaciones comunes
+                        repaired_json = json_content
+                        
+                        # Agregar coma faltante antes de closing brace si es necesario
+                        if parse_error.msg == "Expecting ',' delimiter":
+                            pos = parse_error.pos
+                            if pos < len(repaired_json) and repaired_json[pos-1:pos+1] in ['"\n', '" }', '"\t']:
+                                repaired_json = repaired_json[:pos] + ',' + repaired_json[pos:]
+                        
+                        # Remover comas finales
+                        repaired_json = repaired_json.replace(',}', '}').replace(',]', ']')
+                        
+                        # Intentar parsear JSON reparado
+                        try:
+                            parsed_json = json.loads(repaired_json)
+                            self.logger.info(f"✅ JSON reparado exitosamente para {document_name}")
+                        except json.JSONDecodeError:
+                            # Si aún falla, crear estructura mínima
+                            self.logger.warning(f"⚠️ Creando estructura JSON mínima para {document_name}")
+                            parsed_json = {
+                                "documento_info": {
+                                    "nombre_documento": document_name,
+                                    "tipo_documento": "Informe de Auditoría",
+                                    "fecha_documento": "",
+                                    "proyecto": document_content.get('project_name', '')
+                                },
+                                "hallazgos_auditoria": [],
+                                "riesgos_identificados": [],
+                                "medidas_correctivas": [],
+                                "resumen_auditoria": {
+                                    "total_hallazgos": 0,
+                                    "hallazgos_criticos": 0,
+                                    "porcentaje_implementacion": 0.0,
+                                    "principales_riesgos": "No se pudo extraer información debido a errores de formato"
+                                }
+                            }
                     
                     # Guardar JSON en subcarpeta LLM_output/Auditoria
                     project_name = document_content.get('project_name', 'unknown')
@@ -318,83 +450,136 @@ Código CFA, Estado del informe, Si se entregó informe de auditoría externo, C
         
         # Prompt específico para análisis de productos
         prompt_productos = f"""
-Eres un Analista de Cartera, Experto en seguimiento documentos de proyectos, debes Identificar todos los productos comprometidos en el proyecto y genera una fila por producto, priorizando fuentes y separando meta (número) y unidad. Normaliza campos y emite concepto final por producto con justificación.
-
-Prioridad documental:
-ROP > INI > DEC > IFS (y anexo Excel si lo cita el índice). En duplicados, usar versión más reciente; cambios → Observación.
-
-Checklist anti–"NO EXTRAIDO":
-- Tablas/Matrices: "Matriz de Indicadores", "Marco Lógico", "Metas físicas".
-- Narrativo: "Resultados esperados", "Componentes", "Seguimiento de indicadores" (IFS).
-- Anexos/Excel de indicadores.
-- Encabezados/pies → "Última revisión/Actualización".
-- Validar que el registro sea producto (no resultado).
-
-Dónde buscar (por campo):
-- Código CFA / código CFX: portada/primeras páginas, marcos lógicos, carátulas (ROP/INI/DEC/IFS).
-- descripción de producto: títulos/filas en matrices/POA/Componentes/IFS.
-- meta del producto / meta unidad: columnas de meta ("230 km" → meta="230", unidad="km"). Si no es inequívoco → NO EXTRAIDO.
-- fuente del indicador: columna/nota "Fuente" (ej.: ROP, INI, DEC, IFS, SSC).
-- fecha cumplimiento de meta: "Fecha meta / Fecha de cumplimiento / Plazo".
-- tipo de dato: pendiente/proyectado/realizado (detecta palabras clave como programado, estimado, alcanzado).
-- característica ∈ {{administración, capacitación, equipamiento y mobiliario, fortalecimiento institucional, infraestructura}}.
-- check_producto: "Sí" si el indicador es relacionado al producto y está extraído.
-
-Casos / reglas especiales:
-- Acumulado vs período: si la tabla es acumulativa, no dupliques.
-- Idiomas/formatos: acepta ES/PT/EN y tablas rotadas.
-- Separación meta/unidad: detecta variantes ("230 kilómetros", "230,5 Km", "100%", "1.500 personas").
-- No inventes: si faltan meta o unidad, deja NO EXTRAIDO.
-
-Niveles de confianza:
-EXTRAIDO_DIRECTO, EXTRAIDO_INFERIDO, NO_EXTRAIDO. Formato: valor|NIVEL_CONFIANZA.
-
-Normalización + Concepto:
-- tipo_dato_norm ∈ {{pendiente, proyectado, realizado}} o null.
-- caracteristica_norm ∈ {{administracion, capacitacion, fortalecimiento institucional, infraestructura}} o null.
-- meta_num: número puro si inequívoco; si no, null.
-- meta_unidad_norm: normalizar a catálogo (%, km, personas, metros cuadrados, metros cubicos, horas, hectareas, kilovoltioamperio, megavoltio amperio, litros/segundo, galones, miles de galones por dia, toneladas, cantidad/año, miles de metros al cuadrado, etc.).
-- concepto_final ∈ {{Favorable, Favorable con reservas, Desfavorable}} según coherencia meta/fecha/Retraso + fuente.
-- concepto_rationale (1–2 frases con evidencia y fuente).
-
-Few-shot (patrones típicos):
-- "230 km de carretera" → meta="230"|EXTRAIDO_DIRECTO, unidad="km"|EXTRAIDO_DIRECTO.
-- "1,500 personas capacitadas" → meta="1500"|EXTRAIDO_DIRECTO, unidad="personas"|EXTRAIDO_DIRECTO.
-- "Resultado alcanzado" → tipo_dato="realizado"|EXTRAIDO_DIRECTO.
-- "Meta programada para 2024" → tipo_dato="proyectado"|EXTRAIDO_INFERIDO.
-- "Talleres de capacitación" → característica="capacitación"|EXTRAIDO_INFERIDO.
-
-Salida (una fila por producto; si falta evidencia, "NO EXTRAIDO"):
-Código CFA, descripción de producto, meta del producto, meta unidad, fuente del indicador, fecha cumplimiento de meta, tipo de dato, característica, check_producto, fecha de extracción, fecha de ultima revisión, código CFX, Nombre del archivo revisado, Retraso, Observación, tipo_dato_norm, caracteristica_norm, meta_num, meta_unidad_norm, concepto_final, concepto_rationale.
-
-Responde ÚNICAMENTE en formato JSON válido con la siguiente estructura:
-{{
-  "Código CFA": "valor|NIVEL_CONFIANZA",
-  "descripción de producto": "valor|NIVEL_CONFIANZA",
-  "meta del producto": "valor|NIVEL_CONFIANZA",
-  "meta unidad": "valor|NIVEL_CONFIANZA",
-  "fuente del indicador": "valor|NIVEL_CONFIANZA",
-  "fecha cumplimiento de meta": "valor|NIVEL_CONFIANZA",
-  "tipo de dato": "valor|NIVEL_CONFIANZA",
-  "característica": "valor|NIVEL_CONFIANZA",
-  "check_producto": "valor|NIVEL_CONFIANZA",
-  "fecha de extracción": "{datetime.now().strftime('%Y-%m-%d')}",
-  "fecha de ultima revisión": "valor|NIVEL_CONFIANZA",
-  "código CFX": "valor|NIVEL_CONFIANZA",
-  "Nombre del archivo revisado": "{display_name}",
-  "Retraso": "valor|NIVEL_CONFIANZA",
-  "Observación": "valor|NIVEL_CONFIANZA",
-  "tipo_dato_norm": null,
-  "caracteristica_norm": null,
-  "meta_num": null,
-  "meta_unidad_norm": null,
-  "concepto_final": "Favorable|Favorable con reservas|Desfavorable",
-  "concepto_rationale": "Justificación basada en evidencia encontrada"
-}}
-
-Documento a analizar:
-{document_content.get('content', '')}
-"""
+        **ROL:** Eres un experto analista de cartera especializado en seguimiento de productos y resultados de proyectos de desarrollo.
+        
+        **PRIORIDAD DE DOCUMENTOS:**
+        1. Reportes de Operación (ROP)
+        2. Informes de Inicio (INI)
+        3. Declaraciones de Efectividad (DEC)
+        4. Informes de Seguimiento (IFS)
+        5. Matrices de Marco Lógico
+        
+        **CHECKLIST DE PRODUCTOS:**
+        - ✅ Identificar todos los productos comprometidos
+        - ✅ Extraer metas físicas y financieras
+        - ✅ Verificar estado de avance
+        - ✅ Evaluar calidad de entregables
+        - ✅ Analizar cumplimiento de cronograma
+        
+        **INSTRUCCIONES DE EXTRACCIÓN:**
+        1. Extrae TODOS los productos mencionados en el proyecto
+        2. Para cada producto, identifica:
+           - Descripción del producto
+           - Meta cuantitativa (número y unidad)
+           - Fecha de cumplimiento esperada
+           - Estado actual de avance
+           - Calidad del entregable
+        3. Clasifica productos por categoría
+        4. Evalúa riesgos de cumplimiento
+        
+        **REGLAS DE NORMALIZACIÓN:**
+        - Fechas en formato YYYY-MM-DD
+        - Metas: separar número de unidad (ej: "230 km" → meta=230, unidad="km")
+        - Estados: "No Iniciado", "En Proceso", "Completado", "Retrasado"
+        - Categorías: "Infraestructura", "Capacitación", "Equipamiento", "Fortalecimiento Institucional", "Administración"
+        
+        **NIVEL DE CONFIANZA:**
+        - Alto (0.9-1.0): Información explícita en matrices o tablas
+        - Medio (0.7-0.8): Información inferida del contexto
+        - Bajo (0.5-0.6): Información parcial o ambigua
+        
+        **ESQUEMA DE SALIDA JSON:**
+        {{
+            "documento_info": {{
+                "nombre_documento": "string",
+                "tipo_documento": "string",
+                "fecha_documento": "YYYY-MM-DD",
+                "proyecto": "string"
+            }},
+            "productos_identificados": [
+                {{
+                    "id_producto": "string",
+                    "descripcion": "string",
+                    "categoria": "Infraestructura|Capacitación|Equipamiento|Fortalecimiento Institucional|Administración",
+                    "meta_numerica": 0,
+                    "unidad_medida": "string",
+                    "fecha_cumplimiento": "YYYY-MM-DD",
+                    "estado_avance": "No Iniciado|En Proceso|Completado|Retrasado",
+                    "porcentaje_avance": 0.0,
+                    "calidad_entregable": "Excelente|Buena|Regular|Deficiente",
+                    "fuente_informacion": "string",
+                    "nivel_confianza": 0.0
+                }}
+            ],
+            "analisis_cumplimiento": [
+                {{
+                    "categoria": "string",
+                    "productos_totales": 0,
+                    "productos_completados": 0,
+                    "porcentaje_cumplimiento": 0.0,
+                    "principales_riesgos": "string"
+                }}
+            ],
+            "resumen_productos": {{
+                "total_productos": 0,
+                "productos_en_tiempo": 0,
+                "productos_retrasados": 0,
+                "porcentaje_cumplimiento_general": 0.0,
+                "principales_desafios": "string"
+            }}
+        }}
+        
+        **EJEMPLO DE SALIDA:**
+        {{
+            "documento_info": {{
+                "nombre_documento": "ROP Proyecto Infraestructura Rural",
+                "tipo_documento": "Reporte de Operación",
+                "fecha_documento": "2023-06-15",
+                "proyecto": "CFA009757"
+            }},
+            "productos_identificados": [
+                {{
+                    "id_producto": "P001",
+                    "descripcion": "Construcción de carreteras rurales",
+                    "categoria": "Infraestructura",
+                    "meta_numerica": 230,
+                    "unidad_medida": "km",
+                    "fecha_cumplimiento": "2023-12-31",
+                    "estado_avance": "En Proceso",
+                    "porcentaje_avance": 65.0,
+                    "calidad_entregable": "Buena",
+                    "fuente_informacion": "Matriz de Marco Lógico",
+                    "nivel_confianza": 0.9
+                }}
+            ],
+            "analisis_cumplimiento": [
+                {{
+                    "categoria": "Infraestructura",
+                    "productos_totales": 3,
+                    "productos_completados": 1,
+                    "porcentaje_cumplimiento": 33.3,
+                    "principales_riesgos": "Retrasos en adquisición de materiales"
+                }}
+            ],
+            "resumen_productos": {{
+                "total_productos": 8,
+                "productos_en_tiempo": 5,
+                "productos_retrasados": 3,
+                "porcentaje_cumplimiento_general": 62.5,
+                "principales_desafios": "Coordinación interinstitucional y disponibilidad de recursos"
+            }}
+        }}
+        
+        **DOCUMENTO A ANALIZAR:**
+        {document_content.get('content', '')}
+        
+        **METADATOS DEL DOCUMENTO:**
+        - Nombre: {document_content.get('filename', 'N/A')}
+        - Proyecto: {document_content.get('project_name', 'N/A')}
+        - Páginas: {document_content.get('pages', 'N/A')}
+        
+        Analiza el documento y extrae toda la información de productos siguiendo el esquema JSON especificado.
+        """
         
         try:
             # Llamada a Azure OpenAI
@@ -504,99 +689,146 @@ Documento a analizar:
         
         # Prompt específico para análisis de desembolsos
         prompt_desembolsos = f"""
-Eres un analista de cartera experto en seguimiento de desembolsos, debes Extraer desembolsos proyectados y realizados, con tabla-primero, deduplicando por período+moneda, sin convertir moneda. Normaliza fuente y emite concepto final con justificación.
-
-Prioridad documental
-ROP > INI > DEC:
-
-Proyectados: en Cronograma/Programación/Calendario (ROP/INI).
-
-Realizados: "Detalle/Estado de desembolsos", EEFF o narrativa (si aparece).
-
-Checklist anti–"NO EXTRAIDO": 
-
-Tablas (cronograma/estado/flujo de caja).
-
-Columnas típicas: Fecha | Monto | Moneda | Fuente/Tipo.
-
-Equivalente USD: solo llenarlo si no existe la moneda original como registro separado.
-
-DEDUP: no repitas mismo período + moneda del mismo evento.
-
-Si falta algún dato (fecha/moneda/monto/fuente) tras revisar tablas y notas → NO EXTRAIDO.
-
-Dónde buscar (por campo): 
-
-Código de operación (CFX): portada/primeras páginas, cabecera del cronograma.
-
-fecha de desembolso por parte de CAF:
-
-Realizado → "Detalle/Estado de desembolsos", "Desembolsos efectuados/realizados".
-
-Proyectado → "Cronograma/Programación/Calendario de desembolsos", "Flujo de caja".
-
-monto desembolsado CAF: columna "Monto/Importe/Desembolsado" (sin símbolos, sin conversiones).
-
-monto desembolsado CAF USD: solo si hay columna/registro explícito en USD y no existe el original.
-
-fuente CAF: etiqueta clara: "CAF Realizado", "Proyectado (Cronograma)", "Anticipo", "Pago directo", etc.
-
-fecha de extracción (ahora), fecha de última revisión, Nombre del archivo revisado, Observación (cambios de montos/periodificación/moneda/fuente entre versiones).
-
-Niveles de confianza: 
-
-EXTRAIDO_DIRECTO, EXTRAIDO_INFERIDO, NO_EXTRAIDO (usa valor|NIVEL_CONFIANZA).
-
-Normalización + Concepto: 
-
-fuente_norm (opcional) → {{CAF Realizado, Proyectado (Cronograma), Anticipo, Pago directo, Reembolso…}} o null.
-
-concepto_final ∈ {{Favorable, Favorable con reservas, Desfavorable}}:
-
-Favorable: registros completos y coherentes (fecha, monto, moneda, fuente).
-
-Con reservas: inconsistencias menores explicadas o diferencias programado/realizado documentadas.
-
-Desfavorable: faltantes graves/errores o retrasos sin justificación.
-
-concepto_rationale: 1–2 frases con evidencia (indicar fuente: ROP/INI/DEC/EEFF).
-
-Few-shot (patrones de montos/fechas): 
-
-2024-06 | 1.250.000 | USD | CAF Realizado → fecha="2024-06"|EXTRAIDO_DIRECTO, monto="1250000"|EXTRAIDO_DIRECTO, USD, fuente="CAF Realizado"|EXTRAIDO_DIRECTO.
-
-"USD 1,000", "1.000.000", "1 000 000", "US$ 2,5 M" → extrae número puro (no agregues símbolos; no conviertas).
-
-Reglas claves: 
-
-No convertir moneda ni inferir fechas/moneda.
-
-No duplicar periodo+moneda.
-
-Priorizar moneda original; USD solo si no está la original.
-
-Salida (si falta evidencia, "NO EXTRAIDO")
-Código de operación (CFX), fecha de desembolso por parte de CAF, monto desembolsado CAF, monto desembolsado CAF USD, fuente CAF proyectado, fecha de extracción, fecha de ultima revisión, Nombre del archivo revisado, Observación, fuente_norm (opcional), concepto_final, concepto_rationale.
-
-Responde ÚNICAMENTE en formato JSON válido con la siguiente estructura:
-{{
-  "Código de operación (CFX)": "valor|NIVEL_CONFIANZA",
-  "fecha de desembolso por parte de CAF": "valor|NIVEL_CONFIANZA",
-  "monto desembolsado CAF": "valor|NIVEL_CONFIANZA",
-  "monto desembolsado CAF USD": "valor|NIVEL_CONFIANZA",
-  "fuente CAF proyectado": "valor|NIVEL_CONFIANZA",
-  "fecha de extracción": "{datetime.now().strftime('%Y-%m-%d')}",
-  "fecha de ultima revisión": "valor|NIVEL_CONFIANZA",
-  "Nombre del archivo revisado": "{display_name}",
-  "Observación": "valor|NIVEL_CONFIANZA",
-  "fuente_norm": null,
-  "concepto_final": "Favorable|Favorable con reservas|Desfavorable",
-  "concepto_rationale": "Justificación basada en evidencia encontrada"
-}}
-
-Documento a analizar:
-{document_content.get('content', '')}
-"""
+        **ROL:** Eres un experto analista de cartera especializado en seguimiento de desembolsos de proyectos de desarrollo.
+        
+        **PRIORIDAD DE DOCUMENTOS:**
+        1. Reportes de Operación (ROP)
+        2. Informes de Inicio (INI)
+        3. Declaraciones de Efectividad (DEC)
+        4. Estados financieros
+        5. Cronogramas de desembolso
+        
+        **CHECKLIST DE DESEMBOLSOS:**
+        - ✅ Identificar desembolsos proyectados y realizados
+        - ✅ Extraer fechas y montos exactos
+        - ✅ Verificar fuentes de financiamiento
+        - ✅ Evaluar cumplimiento de cronograma
+        - ✅ Analizar variaciones presupuestarias
+        
+        **INSTRUCCIONES DE EXTRACCIÓN:**
+        1. Extrae TODOS los desembolsos mencionados (proyectados y realizados)
+        2. Para cada desembolso, identifica:
+           - Fecha de desembolso
+           - Monto en moneda original
+           - Equivalente en USD (si disponible)
+           - Fuente de financiamiento
+           - Estado (proyectado/realizado)
+        3. No conviertas monedas - usa valores originales
+        4. Deduplica por período + moneda
+        
+        **REGLAS DE NORMALIZACIÓN:**
+        - Fechas en formato YYYY-MM-DD
+        - Montos sin símbolos de moneda en el número
+        - Estados: "Proyectado", "Realizado", "Pendiente", "Cancelado"
+        - Fuentes: "CAF", "Contraparte Local", "Otros Organismos", "Recursos Propios"
+        
+        **NIVEL DE CONFIANZA:**
+        - Alto (0.9-1.0): Información explícita en tablas de desembolso
+        - Medio (0.7-0.8): Información inferida de cronogramas
+        - Bajo (0.5-0.6): Información parcial o estimada
+        
+        **ESQUEMA DE SALIDA JSON:**
+        {{
+            "documento_info": {{
+                "nombre_documento": "string",
+                "tipo_documento": "string",
+                "fecha_documento": "YYYY-MM-DD",
+                "proyecto": "string"
+            }},
+            "desembolsos_identificados": [
+                {{
+                    "id_desembolso": "string",
+                    "fecha_desembolso": "YYYY-MM-DD",
+                    "monto_original": 0.0,
+                    "moneda_original": "string",
+                    "monto_usd": 0.0,
+                    "fuente_financiamiento": "CAF|Contraparte Local|Otros Organismos|Recursos Propios",
+                    "estado_desembolso": "Proyectado|Realizado|Pendiente|Cancelado",
+                    "tipo_desembolso": "Inicial|Intermedio|Final|Extraordinario",
+                    "concepto": "string",
+                    "nivel_confianza": 0.0
+                }}
+            ],
+            "analisis_cronograma": {{
+                "total_proyectado": 0.0,
+                "total_realizado": 0.0,
+                "porcentaje_ejecucion": 0.0,
+                "desviacion_cronograma": 0,
+                "principales_retrasos": "string"
+            }},
+            "analisis_por_fuente": [
+                {{
+                    "fuente": "string",
+                    "monto_proyectado_usd": 0.0,
+                    "monto_realizado_usd": 0.0,
+                    "porcentaje_cumplimiento": 0.0
+                }}
+            ],
+            "resumen_desembolsos": {{
+                "total_desembolsos": 0,
+                "desembolsos_realizados": 0,
+                "desembolsos_pendientes": 0,
+                "monto_total_usd": 0.0,
+                "principales_observaciones": "string"
+            }}
+        }}
+        
+        **EJEMPLO DE SALIDA:**
+        {{
+            "documento_info": {{
+                "nombre_documento": "ROP Proyecto Infraestructura",
+                "tipo_documento": "Reporte de Operación",
+                "fecha_documento": "2023-06-15",
+                "proyecto": "CFA009757"
+            }},
+            "desembolsos_identificados": [
+                {{
+                    "id_desembolso": "D001",
+                    "fecha_desembolso": "2023-03-15",
+                    "monto_original": 5000000.0,
+                    "moneda_original": "USD",
+                    "monto_usd": 5000000.0,
+                    "fuente_financiamiento": "CAF",
+                    "estado_desembolso": "Realizado",
+                    "tipo_desembolso": "Inicial",
+                    "concepto": "Primer desembolso para inicio de obras",
+                    "nivel_confianza": 0.9
+                }}
+            ],
+            "analisis_cronograma": {{
+                "total_proyectado": 20000000.0,
+                "total_realizado": 12000000.0,
+                "porcentaje_ejecucion": 60.0,
+                "desviacion_cronograma": -30,
+                "principales_retrasos": "Retrasos en procesos de licitación"
+            }},
+            "analisis_por_fuente": [
+                {{
+                    "fuente": "CAF",
+                    "monto_proyectado_usd": 15000000.0,
+                    "monto_realizado_usd": 9000000.0,
+                    "porcentaje_cumplimiento": 60.0
+                }}
+            ],
+            "resumen_desembolsos": {{
+                "total_desembolsos": 8,
+                "desembolsos_realizados": 3,
+                "desembolsos_pendientes": 5,
+                "monto_total_usd": 20000000.0,
+                "principales_observaciones": "Ejecución dentro de parámetros esperados con ligeros retrasos"
+            }}
+        }}
+        
+        **DOCUMENTO A ANALIZAR:**
+        {document_content.get('content', '')}
+        
+        **METADATOS DEL DOCUMENTO:**
+        - Nombre: {document_content.get('filename', 'N/A')}
+        - Proyecto: {document_content.get('project_name', 'N/A')}
+        - Páginas: {document_content.get('pages', 'N/A')}
+        
+        Analiza el documento y extrae toda la información de desembolsos siguiendo el esquema JSON especificado.
+        """
         
         try:
             # Llamada a Azure OpenAI
