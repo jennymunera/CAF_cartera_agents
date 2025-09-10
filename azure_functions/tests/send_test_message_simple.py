@@ -5,7 +5,7 @@ Script para enviar un mensaje de prueba más simple al Service Bus.
 
 import os
 import json
-from azure.servicebus import ServiceBusClient, ServiceBusMessage
+from azure.servicebus import ServiceBusClient, ServiceBusMessage, TransportType
 from dotenv import load_dotenv
 
 def send_simple_test_message():
@@ -38,7 +38,11 @@ def send_simple_test_message():
     
     try:
         # Crear cliente del Service Bus
-        servicebus_client = ServiceBusClient.from_connection_string(connection_string)
+        # Usar AMQP over WebSockets (puerto 443) para redes restringidas
+        servicebus_client = ServiceBusClient.from_connection_string(
+            conn_str=connection_string,
+            transport_type=TransportType.AmqpOverWebsocket
+        )
         
         with servicebus_client:
             # Obtener sender para la cola
