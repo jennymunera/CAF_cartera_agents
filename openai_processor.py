@@ -1,10 +1,8 @@
 import os
 import json
 import logging
-import re
 from typing import Dict, List, Any, Optional
 from datetime import datetime
-from pathlib import Path
 from openai import AzureOpenAI
 from dotenv import load_dotenv
 
@@ -1358,56 +1356,7 @@ Esquema de salida JSON (por registro)
             self.logger.error(f"Error procesando proyecto {project_name}: {str(e)}")
             raise
     
-    def concatenate_results(self, results: Dict[str, Any], output_path: str) -> str:
-        """
-        Concatena todos los resultados en un JSON final.
-        
-        Args:
-            results: Resultados del procesamiento
-            output_path: Ruta donde guardar el resultado final
-            
-        Returns:
-            Ruta del archivo generado
-        """
-        self.logger.info(f"📋 Concatenando resultados finales")
-        
-        try:
-            # TODO: Implementar lógica de concatenación específica
-            # Por ahora, guardamos todos los resultados tal como están
-            
-            final_output = {
-                "processing_metadata": {
-                    "processed_at": datetime.now().isoformat(),
-                    "processor_version": "1.0.0",
-                    "total_items_processed": len(results.get("documents", [])) + len(results.get("chunks", []))
-                },
-                "project_info": {
-                    "name": results.get("project_name", "unknown"),
-                    "summary": results.get("summary", {})
-                },
-                "processed_documents": results.get("documents", []),
-                "processed_chunks": results.get("chunks", []),
-                "consolidated_analysis": {
-                    "note": "[PENDIENTE - Implementar lógica de consolidación]",
-                    "key_findings": [],
-                    "cross_document_insights": [],
-                    "recommendations": []
-                }
-            }
-            
-            # Crear directorio si no existe
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            
-            # Guardar resultado final
-            with open(output_path, 'w', encoding='utf-8') as f:
-                json.dump(final_output, f, indent=2, ensure_ascii=False)
-            
-            self.logger.info(f"✅ Resultados concatenados guardados en: {output_path}")
-            return output_path
-            
-        except Exception as e:
-            self.logger.error(f"Error concatenando resultados: {str(e)}")
-            raise
+
     
     def concatenate_auditoria_jsons(self, project_name: str) -> str:
         """
@@ -1550,21 +1499,11 @@ Esquema de salida JSON (por registro)
                     self.logger.error(f"❌ Error procesando archivo {filename}: {str(e)}")
                     continue
             
-            # Aplicar deduplicación
-            original_count = len(concatenated_data["productos_results"])
-            concatenated_data["productos_results"] = self.deduplicate_productos(concatenated_data["productos_results"])
-            unique_count = len(concatenated_data["productos_results"])
-            
-            # Actualizar metadata con información de deduplicación
-            concatenated_data["metadata"]["total_unique_productos"] = unique_count
-            concatenated_data["metadata"]["duplicates_removed"] = original_count - unique_count
-            
             # Guardar archivo concatenado
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(concatenated_data, f, indent=2, ensure_ascii=False)
             
             self.logger.info(f"✅ Archivos de productos concatenados: {len(productos_files)} archivos → {output_file}")
-            self.logger.info(f"📊 Deduplicación productos: {original_count} → {unique_count} ({original_count - unique_count} duplicados eliminados)")
             return output_file
             
         except Exception as e:
@@ -1636,89 +1575,13 @@ Esquema de salida JSON (por registro)
                     self.logger.error(f"❌ Error procesando archivo {filename}: {str(e)}")
                     continue
             
-            # Aplicar deduplicación
-            original_count = len(concatenated_data["desembolsos_results"])
-            concatenated_data["desembolsos_results"] = self.deduplicate_desembolsos(concatenated_data["desembolsos_results"])
-            unique_count = len(concatenated_data["desembolsos_results"])
-            
-            # Actualizar metadata con información de deduplicación
-            concatenated_data["metadata"]["total_unique_desembolsos"] = unique_count
-            concatenated_data["metadata"]["duplicates_removed"] = original_count - unique_count
-            
             # Guardar archivo concatenado
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(concatenated_data, f, indent=2, ensure_ascii=False)
             
             self.logger.info(f"✅ Archivos de desembolsos concatenados: {len(desembolsos_files)} archivos → {output_file}")
-            self.logger.info(f"📊 Deduplicación desembolsos: {original_count} → {unique_count} ({original_count - unique_count} duplicados eliminados)")
             return output_file
             
         except Exception as e:
             self.logger.error(f"❌ Error concatenando archivos de desembolsos: {str(e)}")
             raise
-    
-    def deduplicate_productos(self, productos_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Elimina duplicados de la lista de productos basándose en descripción, meta y unidad
-        
-        Args:
-            productos_list: Lista de productos a deduplicar
-            
-        Returns:
-            Lista de productos únicos
-        """
-        seen = set()
-        unique_productos = []
-        
-        for item in productos_list:
-            data = item['data']
-            # Clave única basada en descripción, meta y unidad
-            desc_val = data.get('descripcion_producto', {}).get('value', '')
-            meta_val = data.get('meta_producto', {}).get('value', '')
-            unidad_val = data.get('meta_unidad', {}).get('value', '')
-            
-            # Convertir a string y normalizar
-            desc_str = str(desc_val).strip().lower() if desc_val is not None else ''
-            meta_str = str(meta_val).strip() if meta_val is not None else ''
-            unidad_str = str(unidad_val).strip().lower() if unidad_val is not None else ''
-            
-            key = (desc_str, meta_str, unidad_str)
-            
-            if key not in seen and key != ('', '', ''):
-                seen.add(key)
-                unique_productos.append(item)
-        
-        return unique_productos
-    
-    def deduplicate_desembolsos(self, desembolsos_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Elimina duplicados de la lista de desembolsos basándose en monto, moneda y fecha
-        
-        Args:
-            desembolsos_list: Lista de desembolsos a deduplicar
-            
-        Returns:
-            Lista de desembolsos únicos
-        """
-        seen = set()
-        unique_desembolsos = []
-        
-        for item in desembolsos_list:
-            data = item['data']
-            # Clave única basada en monto, moneda y fecha
-            monto_val = data.get('monto_original', {}).get('value', '')
-            moneda_val = data.get('moneda', {}).get('value', '')
-            fecha_val = data.get('fecha_desembolso', {}).get('value', '')
-            
-            # Convertir a string y normalizar
-            monto_str = str(monto_val).strip() if monto_val is not None else ''
-            moneda_str = str(moneda_val).strip().upper() if moneda_val is not None else ''
-            fecha_str = str(fecha_val).strip() if fecha_val is not None else ''
-            
-            key = (monto_str, moneda_str, fecha_str)
-            
-            if key not in seen and key != ('', '', ''):
-                seen.add(key)
-                unique_desembolsos.append(item)
-        
-        return unique_desembolsos
