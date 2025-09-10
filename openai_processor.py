@@ -110,165 +110,177 @@ class OpenAIProcessor:
             
             self.logger.info(f"🤖 Procesando con Azure OpenAI: {document_name}")
             
-            # Prompt de Auditoría
+            # Prompt de Auditoría - Exactamente igual al archivo prompt Auditoria.txt
             prompt = f"""
-            **ROL:** Eres un experto analista de cartera especializado en auditoría de proyectos de desarrollo.
-            
-            **PRIORIDAD DE DOCUMENTOS:**
-            1. Informes de auditoría
-            2. Informes de supervisión
-            3. Informes de seguimiento
-            4. Informes de evaluación
-            5. Otros documentos relacionados con auditoría
-            
-            **CHECKLIST DE AUDITORÍA:**
-            - ✅ Identificar hallazgos de auditoría
-            - ✅ Extraer recomendaciones
-            - ✅ Verificar estado de implementación
-            - ✅ Evaluar riesgos identificados
-            - ✅ Analizar medidas correctivas
-            
-            **INSTRUCCIONES DE EXTRACCIÓN:**
-            1. Extrae TODOS los hallazgos de auditoría mencionados
-            2. Para cada hallazgo, identifica:
-               - Descripción del hallazgo
-               - Nivel de criticidad (Alto/Medio/Bajo)
-               - Recomendación asociada
-               - Estado de implementación
-               - Fecha límite (si aplica)
-            3. Identifica riesgos operacionales, financieros o de cumplimiento
-            4. Extrae medidas correctivas propuestas o implementadas
-            
-            **REGLAS DE NORMALIZACIÓN:**
-            - Fechas en formato YYYY-MM-DD
-            - Montos en USD (convertir si es necesario)
-            - Estados: "Pendiente", "En Proceso", "Implementado", "Vencido"
-            - Criticidad: "Alto", "Medio", "Bajo"
-            
-            **REGLAS CRÍTICAS PARA JSON:**
-            - SIEMPRE usa comillas dobles para strings
-            - NUNCA uses comillas simples dentro de strings
-            - Escapa caracteres especiales: \" \n \t \\
-            - NO incluyas saltos de línea dentro de strings
-            - Reemplaza saltos de línea con espacios
-            - Limita strings a máximo 200 caracteres
-            
-            **NIVEL DE CONFIANZA:**
-            - Alto (0.9-1.0): Información explícita y clara
-            - Medio (0.7-0.8): Información inferida con contexto
-            - Bajo (0.5-0.6): Información parcial o ambigua
-            
-            **ESQUEMA DE SALIDA JSON:**
-            {{
-                "documento_info": {{
-                    "nombre_documento": "string",
-                    "tipo_documento": "string",
-                    "fecha_documento": "YYYY-MM-DD",
-                    "proyecto": "string"
-                }},
-                "hallazgos_auditoria": [
-                    {{
-                        "id_hallazgo": "string",
-                        "descripcion": "string",
-                        "criticidad": "Alto|Medio|Bajo",
-                        "categoria": "string",
-                        "recomendacion": "string",
-                        "estado_implementacion": "Pendiente|En Proceso|Implementado|Vencido",
-                        "fecha_limite": "YYYY-MM-DD",
-                        "responsable": "string",
-                        "nivel_confianza": 0.0
-                    }}
-                ],
-                "riesgos_identificados": [
-                    {{
-                        "tipo_riesgo": "Operacional|Financiero|Cumplimiento|Reputacional",
-                        "descripcion": "string",
-                        "impacto": "Alto|Medio|Bajo",
-                        "probabilidad": "Alto|Medio|Bajo",
-                        "medidas_mitigacion": "string",
-                        "nivel_confianza": 0.0
-                    }}
-                ],
-                "medidas_correctivas": [
-                    {{
-                        "descripcion": "string",
-                        "estado": "Propuesta|En Implementación|Implementada",
-                        "fecha_implementacion": "YYYY-MM-DD",
-                        "responsable": "string",
-                        "nivel_confianza": 0.0
-                    }}
-                ],
-                "resumen_auditoria": {{
-                    "total_hallazgos": 0,
-                    "hallazgos_criticos": 0,
-                    "porcentaje_implementacion": 0.0,
-                    "principales_riesgos": "string"
-                }}
-            }}
-            
-            **EJEMPLO DE SALIDA:**
-            {{
-                "documento_info": {{
-                    "nombre_documento": "Informe de Auditoría Proyecto XYZ",
-                    "tipo_documento": "Informe de Auditoría",
-                    "fecha_documento": "2023-06-15",
-                    "proyecto": "CFA009757"
-                }},
-                "hallazgos_auditoria": [
-                    {{
-                        "id_hallazgo": "H001",
-                        "descripcion": "Falta de documentación en procesos de adquisición",
-                        "criticidad": "Alto",
-                        "categoria": "Cumplimiento",
-                        "recomendacion": "Implementar procedimiento documentado para adquisiciones",
-                        "estado_implementacion": "En Proceso",
-                        "fecha_limite": "2023-09-30",
-                        "responsable": "Gerencia de Adquisiciones",
-                        "nivel_confianza": 0.9
-                    }}
-                ],
-                "riesgos_identificados": [
-                    {{
-                        "tipo_riesgo": "Cumplimiento",
-                        "descripcion": "Incumplimiento de normativas de adquisición",
-                        "impacto": "Alto",
-                        "probabilidad": "Medio",
-                        "medidas_mitigacion": "Capacitación del personal y actualización de procedimientos",
-                        "nivel_confianza": 0.8
-                    }}
-                ],
-                "medidas_correctivas": [
-                    {{
-                        "descripcion": "Desarrollo de manual de procedimientos de adquisición",
-                        "estado": "En Implementación",
-                        "fecha_implementacion": "2023-08-31",
-                        "responsable": "Consultor Externo",
-                        "nivel_confianza": 0.9
-                    }}
-                ],
-                "resumen_auditoria": {{
-                    "total_hallazgos": 5,
-                    "hallazgos_criticos": 2,
-                    "porcentaje_implementacion": 60.0,
-                    "principales_riesgos": "Riesgos de cumplimiento en procesos de adquisición y gestión financiera"
-                }}
-            }}
-            
-            **DOCUMENTO A ANALIZAR:**
-            {document_content.get('content', '')}
-            
-            **METADATOS DEL DOCUMENTO:**
-            - Nombre: {document_content.get('filename', 'N/A')}
-            - Proyecto: {document_content.get('project_name', 'N/A')}
-            - Páginas: {document_content.get('pages', 'N/A')}
-            
-            **INSTRUCCIONES FINALES:**
-            1. Analiza el documento y extrae información de auditoría
-            2. Responde ÚNICAMENTE con JSON válido
-            3. NO incluyas texto adicional antes o después del JSON
-            4. Asegúrate de que todas las comillas estén correctamente escapadas
-            5. Si no encuentras información, usa arrays vacíos []
-            6. Verifica que el JSON sea válido antes de responder
+Eres un Analista experto en documentos de auditoría de proyectos del Banco CAF.
+Tu tarea es extraer todas las variables del formato Auditorías a partir de documentos IXP, interpretar las opiniones de auditores externos y emitir un concepto final (Favorable / Favorable con reservas / Desfavorable) con justificación breve.
+
+Debes trabajar con rigor: no inventes, usa sinónimos y variantes, y aplica un checklist antes de concluir que algo no existe.
+
+Prioridad documental:
+
+Solo documentos cuyo nombre inicia con IXP.
+
+Si hay múltiples versiones, usa la más reciente y registra cambios en observacion.
+
+CFA y CFX son códigos distintos, deben extraerse por separado.
+
+Checklist anti–"NO EXTRAIDO":
+
+Agota en este orden antes de marcar un campo como NO_EXTRAIDO:
+
+Portada / primeras 2 páginas → Código CFA, CFX, Contrato del préstamo, Fecha del informe.
+
+Índice → saltos a Opinión / Dictamen / Conclusión (variantes ES/PT/EN: "Opinion", "Unqualified opinion", "Parecer", "Sem ressalvas", "Conclusão", "Observación").
+
+Secciones válidas de concepto → Opinión, Dictamen, Conclusión de auditoría.
+
+Tablas administrativas → (solo si el campo es SSC, ver "Gating por fuente") Estado, Fecha de vencimiento, Fecha de cambio de estado.
+
+Encabezados/pies → "Última revisión", "Actualización", "Fecha del informe".
+
+Anexos / Carta de gerencia → posibles dictámenes del auditor.
+
+Dónde buscar (por campo)
+
+codigo_CFA: portada/primeras páginas. Variantes: "Código de operación CFA", "Op. CFA", "Operación CFA".
+
+codigo_CFX: cabeceras o secciones administrativas/financieras. Variantes: "Código CFX", "Op. CFX".
+
+opiniones (control interno / licitación / uso de recursos / unidad ejecutora): solo en Opinión/Dictamen/Conclusión → lenguaje sobre suficiencia/deficiencias, adquisiciones/procurement, conformidad vs plan, desempeño UGP.
+
+fecha_ultima_revision: encabezados/pies ("Última revisión/Actualización").
+
+Campos SSC (ver lista abajo): su evidencia se acepta desde SSC o tablas administrativas solo si el campo está marcado como SSC y la fuente está habilitada (ver Gating).
+
+Sinónimos útiles
+
+Opinión: dictamen, conclusiones, parecer, opinion, parecer, conclusão.
+
+Sin salvedades: sin reservas, unqualified, sem ressalvas.
+
+Entrega informe externo: entregado, recibido, presentado, publicado en SSC, dispensado.
+
+Estado: estado, estatus, situación, condición.
+
+Niveles de confianza (por campo)
+
+Cada variable debe incluir un objeto con:
+value (string/num/date o null), confidence (EXTRAIDO_DIRECTO | EXTRAIDO_INFERIDO | NO_EXTRAIDO), evidence (cita breve).
+
+Normalización:
+
+estado_informe_norm ∈ {{dispensado, normal, satisfecho, vencido, null}}
+
+informe_externo_entregado_norm ∈ {{a tiempo, dispensado, vencido, null}}
+
+concepto_*_norm ∈ {{Favorable, Favorable con reservas, Desfavorable, no se menciona}}
+
+Heurísticas rápidas (few-shot):
+
+"sin salvedades / no reveló deficiencias significativas" → Favorable.
+
+"excepto por… / con salvedades" → Favorable con reservas.
+
+"se sostienen deficiencias / incumplimiento" → Desfavorable.
+
+Status auditoría:
+
+Clasifica con base en el documento:
+
+Disponible: entregado / existe.
+
+No disponible: vencido / dispensado / no entregado.
+
+No requerido: explícitamente no aplica.
+
+Pendiente: aún no llega la fecha o está en trámite.
+
+Gating por fuente (Auditoría):
+
+Solo estos campos pueden usar SSC como fuente:
+
+estado_informe_SSC
+
+informe_auditoria_externa_se_entrego_SSC
+
+fecha_vencimiento_SSC
+
+fecha_cambio_estado_informe_SSC
+
+status_auditoria_SSC
+
+Todos los demás campos NO pueden usar SSC; deben extraerse de los documentos con prefijo IXP.
+
+Si la evidencia de un campo depende de SSC y SSC está deshabilitado temporalmente, devuelve:
+
+value=null, confidence="NO_EXTRAIDO"
+
+Prohibido inferir campos no-SSC desde pistas de SSC.
+
+
+Reglas de salida:
+
+Genera JSON estructurado con todos los campos.
+
+Si no hay evidencia → value=null, confidence="NO_EXTRAIDO", evidence=null.
+
+concepto_rationale y texto_justificacion: siempre una cita corta (1–2 frases) de Opinión/Dictamen.
+
+fecha_extraccion: fecha-hora actual del sistema.
+
+nombre_archivo: documento fuente.
+
+Esquema de salida JSON
+{{
+  "codigo_CFA": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null}},
+  "codigo_CFX": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null}},
+
+  "estado_informe_SSC": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null}},
+  "estado_informe_SSC_norm": "null",
+
+  "informe_auditoria_externa_se_entrego_SSC": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null}},
+  "informe_auditoria_externa_se_entrego_SSC_norm": "null",
+
+  "concepto_control_interno": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null }},
+  "concepto_control_interno_norm": "no se menciona",
+
+  "concepto_licitacion": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null }},
+  "concepto_licitacion_norm": "no se menciona",
+
+  "concepto_uso_recursos": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null}},
+  "concepto_uso_recursos_norm": "no se menciona",
+
+  "concepto_unidad_ejecutora": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null}},
+  "concepto_unidad_ejecutora_norm": "no se menciona",
+
+  "fecha_vencimiento_SSC": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null}},
+  "fecha_cambio_estado_informe_SSC": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null}},
+
+  "fecha_extraccion": "YYYY-MM-DD HH:MM",
+  "fecha_ultima_revision": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null}},
+
+  "status_auditoria_SSC": "Pendiente",
+  "nombre_archivo": "IXP_....pdf",
+
+  "texto_justificacion": {{ "quote": null}}
+}}
+
+**DOCUMENTO A ANALIZAR:**
+{document_content.get('content', '')}
+
+**METADATOS DEL DOCUMENTO:**
+- Nombre: {document_content.get('filename', 'N/A')}
+- Proyecto: {document_content.get('project_name', 'N/A')}
+- Páginas: {document_content.get('pages', 'N/A')}
+
+**INSTRUCCIONES FINALES:**
+1. Analiza el documento y extrae información de auditoría
+2. Responde ÚNICAMENTE con JSON válido
+3. NO incluyas texto adicional antes o después del JSON
+4. Asegúrate de que todas las comillas estén correctamente escapadas
+5. Si no encuentras información, usa arrays vacíos []
+6. Verifica que el JSON sea válido antes de responder
             """
             
             # Llamada a Azure OpenAI
@@ -344,25 +356,34 @@ class OpenAIProcessor:
                             parsed_json = json.loads(repaired_json)
                             self.logger.info(f"✅ JSON reparado exitosamente para {document_name}")
                         except json.JSONDecodeError:
-                            # Si aún falla, crear estructura mínima
-                            self.logger.warning(f"⚠️ Creando estructura JSON mínima para {document_name}")
-                            parsed_json = {
-                                "documento_info": {
-                                    "nombre_documento": document_name,
-                                    "tipo_documento": "Informe de Auditoría",
-                                    "fecha_documento": "",
-                                    "proyecto": document_content.get('project_name', '')
-                                },
-                                "hallazgos_auditoria": [],
-                                "riesgos_identificados": [],
-                                "medidas_correctivas": [],
-                                "resumen_auditoria": {
-                                    "total_hallazgos": 0,
-                                    "hallazgos_criticos": 0,
-                                    "porcentaje_implementacion": 0.0,
-                                    "principales_riesgos": "No se pudo extraer información debido a errores de formato"
-                                }
-                            }
+                            # Si aún falla, crear estructura mínima con el esquema correcto
+                             self.logger.warning(f"⚠️ Creando estructura JSON mínima para {document_name}")
+                             parsed_json = {
+                                 "codigo_CFA": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                                 "codigo_CFX": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                                 "estado_informe_SSC": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                                 "estado_informe_SSC_norm": "null",
+                                 "informe_auditoria_externa_se_entrego_SSC": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                                 "informe_auditoria_externa_se_entrego_SSC_norm": "null",
+                                 "concepto_control_interno": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                                 "concepto_control_interno_norm": "no se menciona",
+                                 "concepto_licitacion": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                                 "concepto_licitacion_norm": "no se menciona",
+                                 "concepto_uso_recursos": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                                 "concepto_uso_recursos_norm": "no se menciona",
+                                 "concepto_unidad_ejecutora": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                                 "concepto_unidad_ejecutora_norm": "no se menciona",
+                                 "fecha_vencimiento_SSC": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                                 "fecha_cambio_estado_informe_SSC": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                                 "fecha_extraccion": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                 "fecha_ultima_revision": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                                 "status_auditoria": "Pendiente",
+                                 "nombre_archivo": document_name,
+                                 "texto_justificacion": {"quote": None},
+                                 "observacion": None,
+                                 "concepto_final": "Favorable",
+                                 "concepto_rationale": {"quote": None}
+                             }
                     
                     # Guardar JSON en subcarpeta LLM_output/Auditoria
                     project_name = document_content.get('project_name', 'unknown')
@@ -448,137 +469,151 @@ class OpenAIProcessor:
             
         self.logger.info(f"🤖 Procesando con Prompt 2 (Productos): {display_name}")
         
-        # Prompt específico para análisis de productos
+        # Prompt específico para análisis de productos - Exactamente igual al archivo prompt Productos.txt
         prompt_productos = f"""
-        **ROL:** Eres un experto analista de cartera especializado en seguimiento de productos y resultados de proyectos de desarrollo.
-        
-        **PRIORIDAD DE DOCUMENTOS:**
-        1. Reportes de Operación (ROP)
-        2. Informes de Inicio (INI)
-        3. Declaraciones de Efectividad (DEC)
-        4. Informes de Seguimiento (IFS)
-        5. Matrices de Marco Lógico
-        
-        **CHECKLIST DE PRODUCTOS:**
-        - ✅ Identificar todos los productos comprometidos
-        - ✅ Extraer metas físicas y financieras
-        - ✅ Verificar estado de avance
-        - ✅ Evaluar calidad de entregables
-        - ✅ Analizar cumplimiento de cronograma
-        
-        **INSTRUCCIONES DE EXTRACCIÓN:**
-        1. Extrae TODOS los productos mencionados en el proyecto
-        2. Para cada producto, identifica:
-           - Descripción del producto
-           - Meta cuantitativa (número y unidad)
-           - Fecha de cumplimiento esperada
-           - Estado actual de avance
-           - Calidad del entregable
-        3. Clasifica productos por categoría
-        4. Evalúa riesgos de cumplimiento
-        
-        **REGLAS DE NORMALIZACIÓN:**
-        - Fechas en formato YYYY-MM-DD
-        - Metas: separar número de unidad (ej: "230 km" → meta=230, unidad="km")
-        - Estados: "No Iniciado", "En Proceso", "Completado", "Retrasado"
-        - Categorías: "Infraestructura", "Capacitación", "Equipamiento", "Fortalecimiento Institucional", "Administración"
-        
-        **NIVEL DE CONFIANZA:**
-        - Alto (0.9-1.0): Información explícita en matrices o tablas
-        - Medio (0.7-0.8): Información inferida del contexto
-        - Bajo (0.5-0.6): Información parcial o ambigua
-        
-        **ESQUEMA DE SALIDA JSON:**
-        {{
-            "documento_info": {{
-                "nombre_documento": "string",
-                "tipo_documento": "string",
-                "fecha_documento": "YYYY-MM-DD",
-                "proyecto": "string"
-            }},
-            "productos_identificados": [
-                {{
-                    "id_producto": "string",
-                    "descripcion": "string",
-                    "categoria": "Infraestructura|Capacitación|Equipamiento|Fortalecimiento Institucional|Administración",
-                    "meta_numerica": 0,
-                    "unidad_medida": "string",
-                    "fecha_cumplimiento": "YYYY-MM-DD",
-                    "estado_avance": "No Iniciado|En Proceso|Completado|Retrasado",
-                    "porcentaje_avance": 0.0,
-                    "calidad_entregable": "Excelente|Buena|Regular|Deficiente",
-                    "fuente_informacion": "string",
-                    "nivel_confianza": 0.0
-                }}
-            ],
-            "analisis_cumplimiento": [
-                {{
-                    "categoria": "string",
-                    "productos_totales": 0,
-                    "productos_completados": 0,
-                    "porcentaje_cumplimiento": 0.0,
-                    "principales_riesgos": "string"
-                }}
-            ],
-            "resumen_productos": {{
-                "total_productos": 0,
-                "productos_en_tiempo": 0,
-                "productos_retrasados": 0,
-                "porcentaje_cumplimiento_general": 0.0,
-                "principales_desafios": "string"
-            }}
-        }}
-        
-        **EJEMPLO DE SALIDA:**
-        {{
-            "documento_info": {{
-                "nombre_documento": "ROP Proyecto Infraestructura Rural",
-                "tipo_documento": "Reporte de Operación",
-                "fecha_documento": "2023-06-15",
-                "proyecto": "CFA009757"
-            }},
-            "productos_identificados": [
-                {{
-                    "id_producto": "P001",
-                    "descripcion": "Construcción de carreteras rurales",
-                    "categoria": "Infraestructura",
-                    "meta_numerica": 230,
-                    "unidad_medida": "km",
-                    "fecha_cumplimiento": "2023-12-31",
-                    "estado_avance": "En Proceso",
-                    "porcentaje_avance": 65.0,
-                    "calidad_entregable": "Buena",
-                    "fuente_informacion": "Matriz de Marco Lógico",
-                    "nivel_confianza": 0.9
-                }}
-            ],
-            "analisis_cumplimiento": [
-                {{
-                    "categoria": "Infraestructura",
-                    "productos_totales": 3,
-                    "productos_completados": 1,
-                    "porcentaje_cumplimiento": 33.3,
-                    "principales_riesgos": "Retrasos en adquisición de materiales"
-                }}
-            ],
-            "resumen_productos": {{
-                "total_productos": 8,
-                "productos_en_tiempo": 5,
-                "productos_retrasados": 3,
-                "porcentaje_cumplimiento_general": 62.5,
-                "principales_desafios": "Coordinación interinstitucional y disponibilidad de recursos"
-            }}
-        }}
-        
-        **DOCUMENTO A ANALIZAR:**
-        {document_content.get('content', '')}
-        
-        **METADATOS DEL DOCUMENTO:**
-        - Nombre: {document_content.get('filename', 'N/A')}
-        - Proyecto: {document_content.get('project_name', 'N/A')}
-        - Páginas: {document_content.get('pages', 'N/A')}
-        
-        Analiza el documento y extrae toda la información de productos siguiendo el esquema JSON especificado.
+Eres un Analista de Cartera experto en proyectos CAF.
+Debes identificar todos los productos comprometidos en el proyecto y generar las filas solicitadas por cada producto, separando meta numérica y unidad, normalizando campos y dejando claro el estado de extracción.
+
+Importante: no emites concepto final.
+
+Prioridad documental:
+
+Jerarquía: ROP > INI > DEC > IFS > Anexo Excel (si lo cita el índice).
+
+En duplicados: usar la versión más reciente; si cambian valores, registrar en observacion.
+
+Checklist anti–"NO_EXTRAIDO":
+
+Tablas/Matrices → "Matriz de Indicadores", "Marco Lógico", "Metas físicas".
+
+Narrativo → "Resultados esperados", "Componentes", "Seguimiento de indicadores" (IFS).
+
+Anexos/Excel → cuando estén citados en índice.
+
+Encabezados/pies → "Última revisión/Actualización".
+
+Dónde buscar (por campo):
+
+Código CFA / CFX: portada, primeras páginas, marcos lógicos, carátulas.
+
+Descripción de producto: títulos/filas en matrices, POA, componentes, IFS.
+
+Meta del producto / Meta unidad: columnas de metas → separa número/unidad (230 km → meta_num=230, meta_unidad=km).
+
+Fuente del indicador: columna/nota "Fuente" (ROP, INI, DEC, IFS, SSC).
+
+Fecha cumplimiento de meta: "Fecha meta", "Fecha de cumplimiento", "Plazo".
+
+Tipo de dato: pendiente/proyectado/realizado (claves: programado, estimado, alcanzado).
+
+Característica: {{administración, capacitación, fortalecimiento institucional, infraestructura}}.
+
+Check_producto: "Sí" si corresponde inequívocamente a producto (no resultado).
+
+Fecha última revisión: encabezados/pies.
+
+Reglas especiales:
+
+Validar producto vs resultado → no confundir.
+
+Acumulado vs período → si es acumulativo, no dupliques registros.
+
+Idiomas/formatos → aceptar ES/PT/EN y tablas rotadas.
+
+Separación meta/unidad → reconocer variantes: "230 kilómetros", "1.500 personas", "100%", "2,5 ha".
+
+No inventar → si falta meta o unidad, deja null.
+
+Niveles de confianza:
+
+Cada variable incluye:
+
+value (dato literal o null).
+
+confidence: EXTRAIDO_DIRECTO | EXTRAIDO_INFERIDO | NO_EXTRAIDO.
+
+evidence: cita breve literal o cercana.
+
+
+Normalización:
+
+tipo_dato_norm ∈ {{pendiente, proyectado, realizado, null}}.
+
+caracteristica_norm ∈ {{administracion, capacitacion, fortalecimiento institucional, infraestructura, null}}.
+
+meta_num: número puro (ej. 230 de "230 km").
+
+meta_unidad_norm: catálogo controlado (%, km, personas, m², m³, horas, hectáreas, kVA, MVA, l/s, galones, miles gal/día, toneladas, cantidad/año, miles m², etc.).
+
+Few-shot (patrones típicos):
+
+"230 km de carretera" → meta_num=230, meta_unidad_norm=km.
+
+"1,500 personas capacitadas" → meta_num=1500, meta_unidad_norm=personas, caracteristica_norm=capacitacion.
+
+"Resultado alcanzado" → tipo_dato_norm=realizado.
+
+"Meta programada para 2024" → tipo_dato_norm=proyectado.
+
+"Talleres de capacitación" → caracteristica_norm=capacitacion.
+
+Reglas de salida:
+Detecta todos los productos en el/los documento(s).
+Por CADA producto identificado:
+EMITE UNA (1) instancia del esquema completo "Esquema de salida JSON (por producto)".
+No agregues ni elimines claves del esquema.
+No mezcles datos de productos distintos en la misma instancia.
+No incluyas texto adicional fuera de las líneas JSON.
+Mantén el orden de las claves tal como está definido en "Esquema de salida JSON (por producto)".
+Si no hay evidencia → value=null, confidence="NO_EXTRAIDO".
+
+fecha_extraccion: fecha-hora actual del sistema.
+nombre_archivo: documento fuente.
+
+Esquema de salida JSON (por producto)
+{{
+  "codigo_CFA": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null }},
+  "codigo_CFX": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null }},
+
+  "descripcion_producto": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null }},
+
+  "meta_producto": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null }},
+  "meta_unidad": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null }},
+  "meta_num": null,
+  "meta_unidad_norm": null,
+
+  "fuente_indicador": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null}},
+  "fecha_cumplimiento_meta": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null}},
+
+  "tipo_dato": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null }},
+  "tipo_dato_norm": null,
+
+  "caracteristica": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null }},
+  "caracteristica_norm": null,
+
+  "check_producto": "No",
+
+  "fecha_extraccion": "YYYY-MM-DD HH:MM",
+  "fecha_ultima_revision": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null }},
+
+  "nombre_archivo": "ROP_....pdf",
+ }}
+
+**DOCUMENTO A ANALIZAR:**
+{document_content.get('content', '')}
+
+**METADATOS DEL DOCUMENTO:**
+- Nombre: {document_content.get('filename', 'N/A')}
+- Proyecto: {document_content.get('project_name', 'N/A')}
+- Páginas: {document_content.get('pages', 'N/A')}
+
+**INSTRUCCIONES FINALES:**
+1. Analiza el documento y extrae información de productos
+2. Responde ÚNICAMENTE con JSON válido
+3. NO incluyas texto adicional antes o después del JSON
+4. Asegúrate de que todas las comillas estén correctamente escapadas
+5. Si no encuentras información, usa arrays vacíos []
+6. Verifica que el JSON sea válido antes de responder
         """
         
         try:
@@ -599,26 +634,128 @@ class OpenAIProcessor:
             # Parsear JSON de la respuesta
             try:
                 # Limpiar la respuesta para extraer solo el JSON
-                json_start = ai_response.find('{')
-                json_end = ai_response.rfind('}') + 1
+                cleaned_response = ai_response.strip()
                 
-                if json_start != -1 and json_end > json_start:
-                    json_content = ai_response[json_start:json_end]
-                    parsed_json = json.loads(json_content)
+                # Remover bloques de código markdown si existen
+                if '```json' in cleaned_response:
+                    start = cleaned_response.find('```json') + 7
+                    end = cleaned_response.find('```', start)
+                    if end != -1:
+                        cleaned_response = cleaned_response[start:end].strip()
+                elif '```' in cleaned_response:
+                    start = cleaned_response.find('```') + 3
+                    end = cleaned_response.find('```', start)
+                    if end != -1:
+                        cleaned_response = cleaned_response[start:end].strip()
+                
+                # Intentar parsear múltiples objetos JSON o un array
+                parsed_objects = []
+                
+                # Primero intentar como array JSON
+                if cleaned_response.strip().startswith('['):
+                    try:
+                        parsed_objects = json.loads(cleaned_response)
+                        if not isinstance(parsed_objects, list):
+                            parsed_objects = [parsed_objects]
+                        self.logger.info(f"📦 Array JSON parseado con {len(parsed_objects)} productos")
+                    except json.JSONDecodeError:
+                        self.logger.warning(f"⚠️ Fallo al parsear como array JSON")
+                        parsed_objects = []
+                
+                # Si no es array, buscar múltiples objetos JSON separados
+                if not parsed_objects:
+                    # Buscar todos los objetos JSON en la respuesta
+                    json_objects = []
+                    start_pos = 0
                     
-                    self.logger.info(f"📋 JSON de productos parseado exitosamente")
+                    while True:
+                        json_start = cleaned_response.find('{', start_pos)
+                        if json_start == -1:
+                            break
+                            
+                        # Encontrar el final del objeto JSON
+                        brace_count = 0
+                        json_end = json_start
+                        
+                        for i in range(json_start, len(cleaned_response)):
+                            if cleaned_response[i] == '{':
+                                brace_count += 1
+                            elif cleaned_response[i] == '}':
+                                brace_count -= 1
+                                if brace_count == 0:
+                                    json_end = i + 1
+                                    break
+                        
+                        if brace_count == 0:  # Objeto JSON completo encontrado
+                            json_content = cleaned_response[json_start:json_end]
+                            
+                            # Limpiar caracteres problemáticos
+                            json_content = json_content.replace('\n', ' ').replace('\t', ' ')
+                            json_content = ' '.join(json_content.split())
+                            
+                            try:
+                                parsed_obj = json.loads(json_content)
+                                json_objects.append(parsed_obj)
+                            except json.JSONDecodeError as parse_error:
+                                # Intentar reparar JSON
+                                repaired_json = json_content.replace(',}', '}').replace(',]', ']')
+                                try:
+                                    parsed_obj = json.loads(repaired_json)
+                                    json_objects.append(parsed_obj)
+                                    self.logger.info(f"✅ JSON reparado exitosamente")
+                                except json.JSONDecodeError:
+                                    self.logger.warning(f"⚠️ No se pudo parsear objeto JSON: {str(parse_error)}")
+                            
+                            start_pos = json_end
+                        else:
+                            break
                     
-                    # Guardar JSON en carpeta LLM_output
-                    project_name = document_content.get('project_name', 'unknown_project')
+                    parsed_objects = json_objects
+                
+                # Si no se encontraron objetos válidos, crear uno mínimo
+                if not parsed_objects:
+                    self.logger.warning(f"⚠️ Creando estructura JSON mínima para {display_name}")
+                    parsed_objects = [{
+                        "codigo_CFA": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                        "codigo_CFX": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                        "descripcion_producto": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                        "meta_producto": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                        "meta_unidad": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                        "meta_num": None,
+                        "meta_unidad_norm": None,
+                        "fuente_indicador": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                        "fecha_cumplimiento_meta": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                        "tipo_dato": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                        "tipo_dato_norm": None,
+                        "caracteristica": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                        "caracteristica_norm": None,
+                        "check_producto": "No",
+                        "fecha_extraccion": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "fecha_ultima_revision": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                        "nombre_archivo": document_name
+                    }]
+                
+                # Procesar cada objeto encontrado
+                all_results = []
+                project_name = document_content.get('project_name', 'unknown_project')
+                base_document_name = document_name.replace('_chunk_', '_CHUNK_').split('_CHUNK_')[0]
+                
+                for idx, parsed_json in enumerate(parsed_objects):
+                    self.logger.info(f"📋 Procesando producto {idx + 1} de {len(parsed_objects)}")
                     
-                    # Crear nombre base del documento (sin chunk)
-                    base_document_name = document_name.replace('_chunk_', '_CHUNK_').split('_CHUNK_')[0]
-                    
-                    # Crear nombre del archivo JSON
-                    if chunk_index is not None:
-                        json_filename = f"{base_document_name}_chunk_{chunk_index:03d}_productos.json"
+                    # Crear nombre del archivo JSON para cada producto
+                    if len(parsed_objects) > 1:
+                        # Múltiples productos: agregar índice
+                        if chunk_index is not None:
+                            json_filename = f"{base_document_name}_chunk_{chunk_index:03d}_producto_{idx+1:03d}.json"
+                        else:
+                            json_filename = f"{base_document_name}_producto_{idx+1:03d}.json"
                     else:
-                        json_filename = f"{base_document_name}_productos.json"
+                        # Un solo producto: usar nombre original
+                        if chunk_index is not None:
+                            json_filename = f"{base_document_name}_chunk_{chunk_index:03d}_productos.json"
+                        else:
+                            json_filename = f"{base_document_name}_productos.json"
                     
                     # Crear directorio si no existe
                     llm_output_dir = os.path.join("output_docs", project_name, "LLM_output", "Productos")
@@ -629,32 +766,63 @@ class OpenAIProcessor:
                     with open(json_path, 'w', encoding='utf-8') as f:
                         json.dump(parsed_json, f, ensure_ascii=False, indent=2)
                     
-                    self.logger.info(f"💾 JSON guardado en: {json_path}")
+                    self.logger.info(f"💾 Producto {idx + 1} guardado en: {json_path}")
                     
+                    # Calcular tokens utilizados (dividir entre el número de productos)
+                    total_tokens = response.usage.total_tokens if hasattr(response, 'usage') else 0
+                    tokens_per_product = total_tokens // len(parsed_objects) if len(parsed_objects) > 0 else total_tokens
+                    
+                    result = {
+                        "prompt_type": "prompt_2_productos",
+                        "document_name": display_name,
+                        "product_index": idx + 1,
+                        "total_products": len(parsed_objects),
+                        "processed_at": datetime.now().isoformat(),
+                        "json_output_path": json_path,
+                        "tokens_used": tokens_per_product,
+                        "status": "success",
+                        "parsed_json": parsed_json
+                    }
+                    
+                    all_results.append(result)
+                
+                self.logger.info(f"✅ Prompt 2 procesado exitosamente - {len(parsed_objects)} productos - Tokens: {total_tokens}")
+                
+                # Retornar el primer resultado para compatibilidad, pero con información de todos
+                if all_results:
+                    main_result = all_results[0].copy()
+                    main_result["all_products"] = all_results
+                    main_result["tokens_used"] = total_tokens  # Total de tokens
+                    main_result["ai_response"] = ai_response
+                    main_result["status"] = "completed"
+                    return main_result
                 else:
-                    self.logger.warning("⚠️ No se pudo extraer JSON válido de la respuesta")
-                    parsed_json = None
-                    json_path = None
+                    # Si no hay resultados, crear uno de error
+                    return {
+                        "prompt_type": "prompt_2_productos",
+                        "document_name": display_name,
+                        "processed_at": datetime.now().isoformat(),
+                        "ai_response": ai_response,
+                        "parsed_json": None,
+                        "json_saved_path": None,
+                        "tokens_used": response.usage.total_tokens if hasattr(response, 'usage') else 0,
+                        "status": "error",
+                        "error": "No se pudieron parsear productos válidos"
+                    }
                     
             except json.JSONDecodeError as e:
                 self.logger.error(f"❌ Error parseando JSON: {str(e)}")
-                parsed_json = None
-                json_path = None
-            
-            # Preparar resultado estructurado
-            result = {
-                "prompt_type": "prompt_2_productos",
-                "document_name": display_name,
-                "processed_at": datetime.now().isoformat(),
-                "ai_response": ai_response,
-                "parsed_json": parsed_json,
-                "json_saved_path": json_path,
-                "tokens_used": response.usage.total_tokens,
-                "status": "completed"
-            }
-            
-            self.logger.info(f"✅ Prompt 2 procesado exitosamente - Tokens: {response.usage.total_tokens}")
-            return result
+                return {
+                    "prompt_type": "prompt_2_productos",
+                    "document_name": display_name,
+                    "processed_at": datetime.now().isoformat(),
+                    "ai_response": ai_response,
+                    "parsed_json": None,
+                    "json_saved_path": None,
+                    "tokens_used": response.usage.total_tokens if hasattr(response, 'usage') else 0,
+                    "status": "error",
+                    "error": f"Error parseando JSON: {str(e)}"
+                }
             
         except Exception as e:
             self.logger.error(f"❌ Error en Prompt 2 (Productos): {str(e)}")
@@ -687,147 +855,174 @@ class OpenAIProcessor:
         display_name = f"{document_name}_chunk_{chunk_index:03d}" if chunk_index is not None else document_name
         self.logger.info(f"💰 Procesando desembolsos: {display_name}")
         
-        # Prompt específico para análisis de desembolsos
+        # Prompt específico para análisis de desembolsos - Exactamente igual al archivo prompt Desembolsos.txt
         prompt_desembolsos = f"""
-        **ROL:** Eres un experto analista de cartera especializado en seguimiento de desembolsos de proyectos de desarrollo.
-        
-        **PRIORIDAD DE DOCUMENTOS:**
-        1. Reportes de Operación (ROP)
-        2. Informes de Inicio (INI)
-        3. Declaraciones de Efectividad (DEC)
-        4. Estados financieros
-        5. Cronogramas de desembolso
-        
-        **CHECKLIST DE DESEMBOLSOS:**
-        - ✅ Identificar desembolsos proyectados y realizados
-        - ✅ Extraer fechas y montos exactos
-        - ✅ Verificar fuentes de financiamiento
-        - ✅ Evaluar cumplimiento de cronograma
-        - ✅ Analizar variaciones presupuestarias
-        
-        **INSTRUCCIONES DE EXTRACCIÓN:**
-        1. Extrae TODOS los desembolsos mencionados (proyectados y realizados)
-        2. Para cada desembolso, identifica:
-           - Fecha de desembolso
-           - Monto en moneda original
-           - Equivalente en USD (si disponible)
-           - Fuente de financiamiento
-           - Estado (proyectado/realizado)
-        3. No conviertas monedas - usa valores originales
-        4. Deduplica por período + moneda
-        
-        **REGLAS DE NORMALIZACIÓN:**
-        - Fechas en formato YYYY-MM-DD
-        - Montos sin símbolos de moneda en el número
-        - Estados: "Proyectado", "Realizado", "Pendiente", "Cancelado"
-        - Fuentes: "CAF", "Contraparte Local", "Otros Organismos", "Recursos Propios"
-        
-        **NIVEL DE CONFIANZA:**
-        - Alto (0.9-1.0): Información explícita en tablas de desembolso
-        - Medio (0.7-0.8): Información inferida de cronogramas
-        - Bajo (0.5-0.6): Información parcial o estimada
-        
-        **ESQUEMA DE SALIDA JSON:**
-        {{
-            "documento_info": {{
-                "nombre_documento": "string",
-                "tipo_documento": "string",
-                "fecha_documento": "YYYY-MM-DD",
-                "proyecto": "string"
-            }},
-            "desembolsos_identificados": [
-                {{
-                    "id_desembolso": "string",
-                    "fecha_desembolso": "YYYY-MM-DD",
-                    "monto_original": 0.0,
-                    "moneda_original": "string",
-                    "monto_usd": 0.0,
-                    "fuente_financiamiento": "CAF|Contraparte Local|Otros Organismos|Recursos Propios",
-                    "estado_desembolso": "Proyectado|Realizado|Pendiente|Cancelado",
-                    "tipo_desembolso": "Inicial|Intermedio|Final|Extraordinario",
-                    "concepto": "string",
-                    "nivel_confianza": 0.0
-                }}
-            ],
-            "analisis_cronograma": {{
-                "total_proyectado": 0.0,
-                "total_realizado": 0.0,
-                "porcentaje_ejecucion": 0.0,
-                "desviacion_cronograma": 0,
-                "principales_retrasos": "string"
-            }},
-            "analisis_por_fuente": [
-                {{
-                    "fuente": "string",
-                    "monto_proyectado_usd": 0.0,
-                    "monto_realizado_usd": 0.0,
-                    "porcentaje_cumplimiento": 0.0
-                }}
-            ],
-            "resumen_desembolsos": {{
-                "total_desembolsos": 0,
-                "desembolsos_realizados": 0,
-                "desembolsos_pendientes": 0,
-                "monto_total_usd": 0.0,
-                "principales_observaciones": "string"
-            }}
-        }}
-        
-        **EJEMPLO DE SALIDA:**
-        {{
-            "documento_info": {{
-                "nombre_documento": "ROP Proyecto Infraestructura",
-                "tipo_documento": "Reporte de Operación",
-                "fecha_documento": "2023-06-15",
-                "proyecto": "CFA009757"
-            }},
-            "desembolsos_identificados": [
-                {{
-                    "id_desembolso": "D001",
-                    "fecha_desembolso": "2023-03-15",
-                    "monto_original": 5000000.0,
-                    "moneda_original": "USD",
-                    "monto_usd": 5000000.0,
-                    "fuente_financiamiento": "CAF",
-                    "estado_desembolso": "Realizado",
-                    "tipo_desembolso": "Inicial",
-                    "concepto": "Primer desembolso para inicio de obras",
-                    "nivel_confianza": 0.9
-                }}
-            ],
-            "analisis_cronograma": {{
-                "total_proyectado": 20000000.0,
-                "total_realizado": 12000000.0,
-                "porcentaje_ejecucion": 60.0,
-                "desviacion_cronograma": -30,
-                "principales_retrasos": "Retrasos en procesos de licitación"
-            }},
-            "analisis_por_fuente": [
-                {{
-                    "fuente": "CAF",
-                    "monto_proyectado_usd": 15000000.0,
-                    "monto_realizado_usd": 9000000.0,
-                    "porcentaje_cumplimiento": 60.0
-                }}
-            ],
-            "resumen_desembolsos": {{
-                "total_desembolsos": 8,
-                "desembolsos_realizados": 3,
-                "desembolsos_pendientes": 5,
-                "monto_total_usd": 20000000.0,
-                "principales_observaciones": "Ejecución dentro de parámetros esperados con ligeros retrasos"
-            }}
-        }}
-        
-        **DOCUMENTO A ANALIZAR:**
-        {document_content.get('content', '')}
-        
-        **METADATOS DEL DOCUMENTO:**
-        - Nombre: {document_content.get('filename', 'N/A')}
-        - Proyecto: {document_content.get('project_name', 'N/A')}
-        - Páginas: {document_content.get('pages', 'N/A')}
-        
-        Analiza el documento y extrae toda la información de desembolsos siguiendo el esquema JSON especificado.
+Eres un analista de cartera experto en seguimiento de desembolsos de proyectos CAF. Debes extraer desembolsos del proyecto por parte de CAF, sin convertir moneda, deduplicando por período + moneda y normalizando la fuente.
+No inventes: si no hay evidencia suficiente, deja value=null y confidence="NO_EXTRAIDO".
+
+Prioridad documental:
+
+Jerarquía: ROP > INI > DEC.
+
+Proyectados: buscar primero en Cronograma/Programación/Calendario (ROP/INI); si no hay, usar DEC.
+
+Realizados: "Detalle/Estado de desembolsos", EEFF o narrativa (en cualquier documento).
+
+En duplicados/versiones: usar la versión más reciente y registrar cambios en observacion (periodificación, montos, moneda, fuente, documento).
+
+Checklist anti–"NO_EXTRAIDO" (agotar en orden)
+
+Tablas: cronograma/estado/flujo de caja.
+
+Columnas típicas: Fecha/Período | Monto | Moneda | Fuente/Tipo (+ "Equivalente USD" si existe).
+
+Narrativa/EEFF: "Desembolsos efectuados/realizados/pagos ejecutados/transferencias realizadas".
+
+Encabezados/pies: "Última revisión/Actualización/Versión".
+
+Si tras agotar el checklist no hay evidencia para un campo específico, deja ese campo como NO_EXTRAIDO.
+Pero si existen período y monto, emite el registro.
+
+
+Dónde buscar (por campo):
+
+Código de operación (CFX): portada/primeras páginas, cabecera del cronograma, secciones administrativas. Variantes: "CFX", "Código CFX", "Operación CFX", "Op. CFX".
+
+Fecha de desembolso (período):
+
+"Detalle/Estado de desembolsos", "Desembolsos efectuados/realizados", "Pagos ejecutados", "Transferencias realizadas", "Cronograma/Programación/Calendario de desembolsos", "Flujo de caja", "Proyección financiera".
+
+Formatos válidos: YYYY, YYYY-MM, YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, DD-MM-YYYY, Enero 2023, Q1 2023, Trimestre 1, Semestre 2, 2024-06.
+
+Monto desembolsado CAF (monto_original): columna "Monto/Importe/Desembolsado/Valor/Total" (extrae número puro, sin símbolos y sin conversiones).
+
+moneda: columna "Moneda" o heredar desde título/cabecera/leyenda de la tabla (p. ej. "(USD)", "Moneda: PEN") → entonces confidence="EXTRAIDO_INFERIDO" con evidencia de la leyenda.
+
+monto_usd: solo si hay columna/registro explícito en USD o "Equivalente USD". No crear fila aparte en USD si ya existe la moneda original para el mismo período/tipo_registro (ver DEDUP).
+
+Fuente CAF (fuente_etiqueta): etiqueta clara: "CAF Realizado", "Proyectado (Cronograma)", "Anticipo", "Pago directo", "Reembolso", con referencia de documento (p. ej. "(ROP)", "(INI)", "(DEC)" si está indicada).
+
+Fecha de última revisión: encabezados/pies o notas ("Última revisión/Actualización/Fecha del documento/Versión/Modificado/Revisado el").
+
+Nombre del archivo revisado: documento del que proviene el dato final.
+
+
+
+Reglas de extracción y deduplicación:
+
+Tabla-primero: prioriza tablas sobre narrativa.
+
+No convertir moneda ni inferir fechas/moneda no sustentadas.
+
+Prioriza moneda original; conserva monto_usd solo si viene explícito en la tabla (o si no hay registro en moneda original).
+
+DEDUP estricta: no repitas mismo período + misma moneda + mismo tipo_registro. Conserva la fila más reciente/consistente y registra diferencias en observacion.
+
+Ambigüedad de fecha: usa el literal (Q1 2025, 2026, etc.); no expandas a fechas exactas.
+
+tipo_registro_norm ∈ {{proyectado, realizado}} (derivado de la sección/tabla/fuente).
+
+
+Niveles de confianza (por campo):
+
+Cada variable se representa como objeto con:
+
+value (string/num o null),
+
+confidence: EXTRAIDO_DIRECTO | EXTRAIDO_INFERIDO | NO_EXTRAIDO,
+
+evidence (cita breve literal o cercana),
+
+
+Normalización:
+
+fuente_norm (opcional) → {{CAF Realizado, Proyectado (Cronograma), Anticipo, Pago directo, Reembolso, Transferencia, Giro, null}}.
+
+tipo_registro_norm → {{proyectado, realizado}}.
+
+moneda → mantener código/etiqueta tal como aparece (no normalizar a ISO si no está explícito, salvo equivalentes claros como "US$"→"USD").
+
+
+Reglas de salida (cardinalidad y formato)
+
+Cardinalidad
+
+Detecta todos los registros de desembolso en el/los documento(s).
+Por CADA registro identificado (unidad mínima = período/fecha × moneda × tipo_registro):
+EMITE UNA (1) instancia del esquema completo "Esquema de salida JSON (por registro)".
+No agregues ni elimines claves.
+Si falta evidencia en una clave: value=null, confidence="NO_EXTRAIDO", evidence=null.
+No incluyas texto adicional fuera del JSON.
+Mantén el orden de claves como en el esquema.
+
+
+Few-shot compacto (referencial, NO generar)
+- Propósito: ilustrar patrones de extracción. NO son datos reales ni deben emitirse.
+- Cardinalidad del ejemplo: 1 entrada de tabla → 1 (una) fila JSON.
+- Prohibido: crear filas adicionales por el mismo ejemplo. 
+
+Ejemplo A (realizado en USD) — NO EMITIR
+Entrada de tabla (una fila):
+  2024-06 | USD 1,250,000 | CAF Realizado (DEC)
+Salida esperada (una sola fila JSON):
+  tipo_registro_norm="realizado";
+  fecha_desembolso.value="2024-06";
+  monto_original.value=1250000; moneda.value="USD";
+  monto_usd.value=1250000 (solo si no existe fila en moneda original);
+  fuente_etiqueta.value="CAF Realizado (DEC)".
+
+Ejemplo B (proyectado en moneda local con columna USD) — NO EMITIR
+Entrada de tabla (una fila):
+  Q1 2025 | PEN 3,500,000 | Equivalente USD 920,000 | Proyectado (Cronograma ROP)
+Salida esperada (una sola fila JSON):
+  tipo_registro_norm="proyectado";
+  fecha_desembolso.value="Q1 2025";
+  monto_original.value=3500000; moneda.value="PEN";
+  monto_usd.value=920000 (si tu esquema conserva columna explícita);
+  fuente_norm="Proyectado (Cronograma)".
+
+
+Esquema de salida JSON (por registro)
+{{
+  "codigo_CFX": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null}},
+
+  "tipo_registro": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null}},
+  "tipo_registro_norm": null,  // proyectado | realizado
+
+  "fecha_desembolso": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null}},
+
+  "monto_original": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null}},
+
+  "moneda": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null}},
+
+  "monto_usd": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null}},
+
+  "fuente_etiqueta": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null }},
+
+  "fuente_norm": null,  // CAF Realizado | Proyectado (Cronograma) | Anticipo | Pago directo | Reembolso | Transferencia | Giro | null
+
+  "fecha_extraccion": "YYYY-MM-DD HH:MM",
+
+  "fecha_ultima_revision": {{ "value": null, "confidence": "NO_EXTRAIDO", "evidence": null }},
+
+  "nombre_archivo": "ROP_....pdf"
+}}
+
+**DOCUMENTO A ANALIZAR:**
+{document_content.get('content', '')}
+
+**METADATOS DEL DOCUMENTO:**
+- Nombre: {document_content.get('filename', 'N/A')}
+- Proyecto: {document_content.get('project_name', 'N/A')}
+- Páginas: {document_content.get('pages', 'N/A')}
+
+**INSTRUCCIONES FINALES:**
+1. Analiza el documento y extrae información de desembolsos
+2. Responde ÚNICAMENTE con JSON válido
+3. NO incluyas texto adicional antes o después del JSON
+4. Asegúrate de que todas las comillas estén correctamente escapadas
+5. Si no encuentras información, usa arrays vacíos []
+6. Verifica que el JSON sea válido antes de responder
         """
         
         try:
@@ -845,29 +1040,124 @@ class OpenAIProcessor:
             # Extraer respuesta del AI
             ai_response = response.choices[0].message.content.strip()
             
-            # Parsear JSON de la respuesta
+            # Parsear JSON de la respuesta - Manejo de múltiples objetos
             try:
-                # Limpiar la respuesta para extraer solo el JSON
-                json_start = ai_response.find('{')
-                json_end = ai_response.rfind('}') + 1
+                # Limpiar la respuesta para extraer JSON
+                cleaned_response = ai_response.strip()
                 
-                if json_start != -1 and json_end > json_start:
-                    json_content = ai_response[json_start:json_end]
-                    parsed_json = json.loads(json_content)
+                # Remover bloques de código markdown si existen
+                if '```json' in cleaned_response:
+                    start = cleaned_response.find('```json') + 7
+                    end = cleaned_response.find('```', start)
+                    if end != -1:
+                        cleaned_response = cleaned_response[start:end].strip()
+                elif '```' in cleaned_response:
+                    start = cleaned_response.find('```') + 3
+                    end = cleaned_response.find('```', start)
+                    if end != -1:
+                        cleaned_response = cleaned_response[start:end].strip()
+                
+                parsed_objects = []
+                
+                # Intentar parsear como array primero
+                if cleaned_response.strip().startswith('['):
+                    try:
+                        array_data = json.loads(cleaned_response)
+                        if isinstance(array_data, list):
+                            parsed_objects = array_data
+                            self.logger.info(f"📋 Parseado como array: {len(parsed_objects)} desembolsos")
+                    except json.JSONDecodeError:
+                        pass
+                
+                # Si no es array, buscar múltiples objetos JSON separados
+                if not parsed_objects:
+                    # Buscar todos los objetos JSON en la respuesta
+                    json_objects = []
+                    start_pos = 0
                     
-                    self.logger.info(f"💰 JSON de desembolsos parseado exitosamente")
+                    while True:
+                        json_start = cleaned_response.find('{', start_pos)
+                        if json_start == -1:
+                            break
+                        
+                        # Encontrar el final del objeto JSON
+                        brace_count = 0
+                        json_end = json_start
+                        
+                        for i in range(json_start, len(cleaned_response)):
+                            if cleaned_response[i] == '{':
+                                brace_count += 1
+                            elif cleaned_response[i] == '}':
+                                brace_count -= 1
+                                if brace_count == 0:
+                                    json_end = i + 1
+                                    break
+                        
+                        if brace_count == 0:
+                            json_content = cleaned_response[json_start:json_end]
+                            
+                            # Limpiar y normalizar
+                            json_content = json_content.replace('\n', ' ').replace('\t', ' ')
+                            json_content = ' '.join(json_content.split())
+                            
+                            try:
+                                parsed_obj = json.loads(json_content)
+                                json_objects.append(parsed_obj)
+                            except json.JSONDecodeError as parse_error:
+                                # Intentar reparar JSON
+                                repaired_json = json_content.replace(',}', '}').replace(',]', ']')
+                                try:
+                                    parsed_obj = json.loads(repaired_json)
+                                    json_objects.append(parsed_obj)
+                                    self.logger.info(f"✅ JSON reparado exitosamente")
+                                except json.JSONDecodeError:
+                                    self.logger.warning(f"⚠️ No se pudo parsear objeto JSON: {str(parse_error)}")
+                            
+                            start_pos = json_end
+                        else:
+                            break
                     
-                    # Guardar JSON en carpeta LLM_output/Desembolsos
-                    project_name = document_content.get('project_name', 'unknown_project')
+                    parsed_objects = json_objects
+                
+                # Si no se encontraron objetos válidos, crear uno mínimo
+                if not parsed_objects:
+                    self.logger.warning(f"⚠️ Creando estructura JSON mínima para desembolsos")
+                    parsed_objects = [{
+                        "codigo_CFX": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                        "tipo_registro": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                        "tipo_registro_norm": None,
+                        "fecha_desembolso": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                        "monto_original": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                        "moneda": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                        "monto_usd": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                        "fuente_etiqueta": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                        "fuente_norm": None,
+                        "fecha_extraccion": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "fecha_ultima_revision": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+                        "nombre_archivo": document_name
+                    }]
+                
+                # Procesar cada objeto encontrado
+                all_results = []
+                project_name = document_content.get('project_name', 'unknown_project')
+                base_document_name = document_name.replace('_chunk_', '_CHUNK_').split('_CHUNK_')[0]
+                
+                for idx, parsed_json in enumerate(parsed_objects):
+                    self.logger.info(f"💰 Procesando desembolso {idx + 1} de {len(parsed_objects)}")
                     
-                    # Crear nombre base del documento (sin chunk)
-                    base_document_name = document_name.replace('_chunk_', '_CHUNK_').split('_CHUNK_')[0]
-                    
-                    # Crear nombre del archivo JSON
-                    if chunk_index is not None:
-                        json_filename = f"{base_document_name}_chunk_{chunk_index:03d}_desembolsos.json"
+                    # Crear nombre del archivo JSON para cada desembolso
+                    if len(parsed_objects) > 1:
+                        # Múltiples desembolsos: agregar índice
+                        if chunk_index is not None:
+                            json_filename = f"{base_document_name}_chunk_{chunk_index:03d}_desembolso_{idx+1:03d}.json"
+                        else:
+                            json_filename = f"{base_document_name}_desembolso_{idx+1:03d}.json"
                     else:
-                        json_filename = f"{base_document_name}_desembolsos.json"
+                        # Un solo desembolso: usar nombre original
+                        if chunk_index is not None:
+                            json_filename = f"{base_document_name}_chunk_{chunk_index:03d}_desembolsos.json"
+                        else:
+                            json_filename = f"{base_document_name}_desembolsos.json"
                     
                     # Crear directorio si no existe
                     llm_output_dir = os.path.join("output_docs", project_name, "LLM_output", "Desembolsos")
@@ -878,33 +1168,48 @@ class OpenAIProcessor:
                     with open(json_path, 'w', encoding='utf-8') as f:
                         json.dump(parsed_json, f, ensure_ascii=False, indent=2)
                     
-                    self.logger.info(f"💾 JSON guardado en: {json_path}")
+                    self.logger.info(f"💾 Desembolso {idx + 1} guardado en: {json_path}")
                     
-                    # Calcular tokens utilizados
+                    # Calcular tokens utilizados (dividir entre el número de desembolsos)
                     total_tokens = response.usage.total_tokens if hasattr(response, 'usage') else 0
+                    tokens_per_disbursement = total_tokens // len(parsed_objects) if len(parsed_objects) > 0 else total_tokens
                     
                     result = {
                         "prompt_type": "prompt_3_desembolsos",
                         "document_name": display_name,
+                        "disbursement_index": idx + 1,
+                        "total_disbursements": len(parsed_objects),
                         "processed_at": datetime.now().isoformat(),
                         "json_output_path": json_path,
-                        "tokens_used": total_tokens,
+                        "tokens_used": tokens_per_disbursement,
                         "status": "success",
                         "parsed_json": parsed_json
                     }
                     
-                    self.logger.info(f"✅ Prompt 3 procesado exitosamente - Tokens: {total_tokens}")
-                    return result
-                    
+                    all_results.append(result)
+                
+                self.logger.info(f"✅ Prompt 3 procesado exitosamente - {len(parsed_objects)} desembolsos - Tokens: {total_tokens}")
+                
+                # Retornar el primer resultado para compatibilidad, pero con información de todos
+                if all_results:
+                    main_result = all_results[0].copy()
+                    main_result["all_disbursements"] = all_results
+                    main_result["tokens_used"] = total_tokens  # Total de tokens
+                    main_result["ai_response"] = ai_response
+                    main_result["status"] = "completed"
+                    return main_result
                 else:
-                    self.logger.warning(f"⚠️ No se pudo extraer JSON válido de la respuesta para {display_name}")
+                    # Si no hay resultados, crear uno de error
                     return {
                         "prompt_type": "prompt_3_desembolsos",
                         "document_name": display_name,
                         "processed_at": datetime.now().isoformat(),
-                        "status": "json_parse_error",
-                        "error": "No se pudo extraer JSON válido",
-                        "raw_response": ai_response[:500]  # Primeros 500 caracteres para debug
+                        "ai_response": ai_response,
+                        "parsed_json": None,
+                        "json_saved_path": None,
+                        "tokens_used": response.usage.total_tokens if hasattr(response, 'usage') else 0,
+                        "status": "error",
+                        "error": "No se pudieron parsear desembolsos válidos"
                     }
                     
             except json.JSONDecodeError as e:
@@ -913,9 +1218,12 @@ class OpenAIProcessor:
                     "prompt_type": "prompt_3_desembolsos",
                     "document_name": display_name,
                     "processed_at": datetime.now().isoformat(),
-                    "status": "json_decode_error",
-                    "error": str(e),
-                    "raw_response": ai_response[:500]
+                    "ai_response": ai_response,
+                    "parsed_json": None,
+                    "json_saved_path": None,
+                    "tokens_used": response.usage.total_tokens if hasattr(response, 'usage') else 0,
+                    "status": "error",
+                    "error": f"Error parseando JSON: {str(e)}"
                 }
                 
         except Exception as e:
@@ -1199,10 +1507,10 @@ class OpenAIProcessor:
                 self.logger.warning(f"⚠️ No existe la carpeta LLM_output: {llm_output_dir}")
                 return None
             
-            # Buscar todos los archivos JSON de productos
+            # Buscar todos los archivos JSON de productos (tanto _productos.json como _producto_XXX.json)
             productos_files = []
             for filename in os.listdir(llm_output_dir):
-                if filename.endswith('_productos.json'):
+                if filename.endswith('_productos.json') or '_producto_' in filename and filename.endswith('.json'):
                     file_path = os.path.join(llm_output_dir, filename)
                     productos_files.append((filename, file_path))
             
@@ -1275,10 +1583,10 @@ class OpenAIProcessor:
                 self.logger.warning(f"⚠️ No existe la carpeta LLM_output: {llm_output_dir}")
                 return None
             
-            # Buscar todos los archivos JSON de desembolsos
+            # Buscar todos los archivos JSON de desembolsos (tanto _desembolsos.json como _desembolso_XXX.json)
             desembolsos_files = []
             for filename in os.listdir(llm_output_dir):
-                if filename.endswith('_desembolsos.json'):
+                if filename.endswith('_desembolsos.json') or '_desembolso_' in filename and filename.endswith('.json'):
                     file_path = os.path.join(llm_output_dir, filename)
                     desembolsos_files.append((filename, file_path))
             
