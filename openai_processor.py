@@ -1550,11 +1550,21 @@ Esquema de salida JSON (por registro)
                     self.logger.error(f"❌ Error procesando archivo {filename}: {str(e)}")
                     continue
             
+            # Aplicar deduplicación
+            original_count = len(concatenated_data["productos_results"])
+            concatenated_data["productos_results"] = self.deduplicate_productos(concatenated_data["productos_results"])
+            unique_count = len(concatenated_data["productos_results"])
+            
+            # Actualizar metadata con información de deduplicación
+            concatenated_data["metadata"]["total_unique_productos"] = unique_count
+            concatenated_data["metadata"]["duplicates_removed"] = original_count - unique_count
+            
             # Guardar archivo concatenado
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(concatenated_data, f, indent=2, ensure_ascii=False)
             
             self.logger.info(f"✅ Archivos de productos concatenados: {len(productos_files)} archivos → {output_file}")
+            self.logger.info(f"📊 Deduplicación productos: {original_count} → {unique_count} ({original_count - unique_count} duplicados eliminados)")
             return output_file
             
         except Exception as e:
@@ -1626,13 +1636,89 @@ Esquema de salida JSON (por registro)
                     self.logger.error(f"❌ Error procesando archivo {filename}: {str(e)}")
                     continue
             
+            # Aplicar deduplicación
+            original_count = len(concatenated_data["desembolsos_results"])
+            concatenated_data["desembolsos_results"] = self.deduplicate_desembolsos(concatenated_data["desembolsos_results"])
+            unique_count = len(concatenated_data["desembolsos_results"])
+            
+            # Actualizar metadata con información de deduplicación
+            concatenated_data["metadata"]["total_unique_desembolsos"] = unique_count
+            concatenated_data["metadata"]["duplicates_removed"] = original_count - unique_count
+            
             # Guardar archivo concatenado
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(concatenated_data, f, indent=2, ensure_ascii=False)
             
             self.logger.info(f"✅ Archivos de desembolsos concatenados: {len(desembolsos_files)} archivos → {output_file}")
+            self.logger.info(f"📊 Deduplicación desembolsos: {original_count} → {unique_count} ({original_count - unique_count} duplicados eliminados)")
             return output_file
             
         except Exception as e:
             self.logger.error(f"❌ Error concatenando archivos de desembolsos: {str(e)}")
             raise
+    
+    def deduplicate_productos(self, productos_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Elimina duplicados de la lista de productos basándose en descripción, meta y unidad
+        
+        Args:
+            productos_list: Lista de productos a deduplicar
+            
+        Returns:
+            Lista de productos únicos
+        """
+        seen = set()
+        unique_productos = []
+        
+        for item in productos_list:
+            data = item['data']
+            # Clave única basada en descripción, meta y unidad
+            desc_val = data.get('descripcion_producto', {}).get('value', '')
+            meta_val = data.get('meta_producto', {}).get('value', '')
+            unidad_val = data.get('meta_unidad', {}).get('value', '')
+            
+            # Convertir a string y normalizar
+            desc_str = str(desc_val).strip().lower() if desc_val is not None else ''
+            meta_str = str(meta_val).strip() if meta_val is not None else ''
+            unidad_str = str(unidad_val).strip().lower() if unidad_val is not None else ''
+            
+            key = (desc_str, meta_str, unidad_str)
+            
+            if key not in seen and key != ('', '', ''):
+                seen.add(key)
+                unique_productos.append(item)
+        
+        return unique_productos
+    
+    def deduplicate_desembolsos(self, desembolsos_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Elimina duplicados de la lista de desembolsos basándose en monto, moneda y fecha
+        
+        Args:
+            desembolsos_list: Lista de desembolsos a deduplicar
+            
+        Returns:
+            Lista de desembolsos únicos
+        """
+        seen = set()
+        unique_desembolsos = []
+        
+        for item in desembolsos_list:
+            data = item['data']
+            # Clave única basada en monto, moneda y fecha
+            monto_val = data.get('monto_original', {}).get('value', '')
+            moneda_val = data.get('moneda', {}).get('value', '')
+            fecha_val = data.get('fecha_desembolso', {}).get('value', '')
+            
+            # Convertir a string y normalizar
+            monto_str = str(monto_val).strip() if monto_val is not None else ''
+            moneda_str = str(moneda_val).strip().upper() if moneda_val is not None else ''
+            fecha_str = str(fecha_val).strip() if fecha_val is not None else ''
+            
+            key = (monto_str, moneda_str, fecha_str)
+            
+            if key not in seen and key != ('', '', ''):
+                seen.add(key)
+                unique_desembolsos.append(item)
+        
+        return unique_desembolsos
