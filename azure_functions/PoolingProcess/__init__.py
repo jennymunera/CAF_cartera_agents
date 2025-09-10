@@ -666,16 +666,18 @@ class BatchResultsProcessor:
                 
             try:
                 result = json.loads(line)
-                total_processed += 1
                 
                 custom_id = result.get('custom_id', '')
                 response = result.get('response', {})
                 
                 if response.get('status_code') == 200:
-                    successful_responses += 1
-                    self._process_successful_response(result, results_by_document, results_by_prompt)
+                    # Procesar y contabilizar cada objeto individual extraído
+                    added = self._process_successful_response(result, results_by_document, results_by_prompt)
+                    successful_responses += int(added)
+                    total_processed += int(added)
                 else:
                     failed_responses += 1
+                    total_processed += 1
                     error_info = {
                         'custom_id': custom_id,
                         'status_code': response.get('status_code'),
@@ -687,6 +689,7 @@ class BatchResultsProcessor:
                         
             except json.JSONDecodeError as e:
                 failed_responses += 1
+                total_processed += 1
                 error_info = {
                     'error': f"Error parsing JSON: {str(e)}",
                     'line': line,
@@ -707,7 +710,7 @@ class BatchResultsProcessor:
             'processed_at': datetime.now().isoformat()
         }
     
-    def _process_successful_response(self, result: Dict[str, Any], results_by_document: Dict, results_by_prompt: Dict):
+    def _process_successful_response(self, result: Dict[str, Any], results_by_document: Dict, results_by_prompt: Dict) -> int:
         """
         Procesa una respuesta exitosa y la organiza en las estructuras de datos.
         
@@ -780,34 +783,177 @@ class BatchResultsProcessor:
                 self.logger.warning(f"No hay choices en la respuesta para {custom_id}")
                 return
             
-            content = choices[0].get('message', {}).get('content', '')
-            
-            # Crear estructura de resultado
-            result_data = {
-                "custom_id": custom_id,
-                "document_name": document_name,
-                "prompt_type": prompt_type,
-                "chunk_info": chunk_info,
-                "content": content,
-                "usage": body.get('usage', {}),
-                "processed_at": datetime.now().isoformat()
-            }
-            
-            # Organizar por documento
-            if document_name not in results_by_document:
-                results_by_document[document_name] = {}
-            
-            if prompt_type not in results_by_document[document_name]:
-                results_by_document[document_name][prompt_type] = []
-            
-            results_by_document[document_name][prompt_type].append(result_data)
-            
-            # Organizar por prompt
-            if prompt_type in results_by_prompt:
-                results_by_prompt[prompt_type].append(result_data)
-            
+            raw_content = choices[0].get('message', {}).get('content', '')
+
+            # Parsear múltiples objetos del contenido y normalizar por tipo de prompt
+            parsed_list = self._parse_multiple_json_objects(raw_content)
+            normalized_list = self._normalize_by_prompt(prompt_type, parsed_list)
+
+            added = 0
+            for idx, obj in enumerate(normalized_list or []):
+                # Construir estructura de resultado por objeto
+                this_custom_id = custom_id if len(normalized_list) == 1 else f"{custom_id}_part_{idx+1:03d}"
+                result_data = {
+                    "custom_id": this_custom_id,
+                    "document_name": document_name,
+                    "prompt_type": prompt_type,
+                    "chunk_info": chunk_info,
+                    "content": obj,  # Guardamos el objeto ya parseado
+                    "usage": body.get('usage', {}),
+                    "processed_at": datetime.now().isoformat()
+                }
+
+                # Organizar por documento
+                if document_name not in results_by_document:
+                    results_by_document[document_name] = {}
+                if prompt_type not in results_by_document[document_name]:
+                    results_by_document[document_name][prompt_type] = []
+                results_by_document[document_name][prompt_type].append(result_data)
+
+                # Organizar por prompt
+                if prompt_type in results_by_prompt:
+                    results_by_prompt[prompt_type].append(result_data)
+
+                added += 1
+
+            # Si no se pudo parsear/normalizar nada, preservamos el texto crudo como un item
+            if added == 0:
+                fallback = {
+                    "_raw_text": raw_content,
+                    "_parse_error": None
+                }
+                if document_name not in results_by_document:
+                    results_by_document[document_name] = {}
+                if prompt_type not in results_by_document[document_name]:
+                    results_by_document[document_name][prompt_type] = []
+                results_by_document[document_name][prompt_type].append({
+                    "custom_id": custom_id,
+                    "document_name": document_name,
+                    "prompt_type": prompt_type,
+                    "chunk_info": chunk_info,
+                    "content": fallback,
+                    "usage": body.get('usage', {}),
+                    "processed_at": datetime.now().isoformat()
+                })
+                if prompt_type in results_by_prompt:
+                    results_by_prompt[prompt_type].append(results_by_document[document_name][prompt_type][-1])
+                added = 1
+
+            return added
+        
         except Exception as e:
             self.logger.error(f"Error procesando respuesta exitosa {result.get('custom_id', 'unknown')}: {str(e)}")
+            return 0
+
+    def _parse_multiple_json_objects(self, content: str) -> List[Dict[str, Any]]:
+        """
+        Extrae 0..N objetos JSON desde un string que puede venir con fences ```json, listas, o
+        múltiples objetos concatenados. Aplica reparaciones leves si es posible.
+        """
+        if not content or not isinstance(content, str):
+            return []
+
+        text = content.strip()
+        # Remover fences de código
+        if text.startswith('```json'):
+            # quitar la primera línea ```json y el cierre ``` si existe
+            text = text[7:] if text.startswith('```json') else text
+            text = text.lstrip('\n')
+            if text.endswith('```'):
+                text = text[:-3]
+
+        text = text.strip()
+
+        def try_json_loads(s: str) -> Optional[Any]:
+            try:
+                return json.loads(s)
+            except Exception:
+                return None
+
+        # Caso lista JSON
+        if text.startswith('['):
+            data = try_json_loads(text)
+            if isinstance(data, list):
+                return [x for x in data if isinstance(x, (dict, list))]
+            elif isinstance(data, dict):
+                return [data]
+
+        # Intentar separar múltiples objetos `{...}{...}`
+        objs: List[Dict[str, Any]] = []
+        buf = ''
+        brace = 0
+        in_str = False
+        esc = False
+        for ch in text:
+            buf += ch
+            if esc:
+                esc = False
+                continue
+            if ch == '\\' and in_str:
+                esc = True
+                continue
+            if ch == '"':
+                in_str = not in_str
+                continue
+            if not in_str:
+                if ch == '{':
+                    brace += 1
+                elif ch == '}':
+                    brace -= 1
+                    if brace == 0:
+                        candidate = buf.strip()
+                        data = try_json_loads(candidate)
+                        if isinstance(data, dict):
+                            objs.append(data)
+                            buf = ''
+
+        # Si no se separó nada, intentar reparaciones leves sobre todo el texto
+        if not objs:
+            repaired = text.replace(',}', '}').replace(',]', ']')
+            # recortar hasta el último '}' si parece truncado
+            last = repaired.rfind('}')
+            if last > 0:
+                candidate = repaired[: last + 1]
+                data = try_json_loads(candidate)
+                if isinstance(data, dict):
+                    return [data]
+                if isinstance(data, list):
+                    return [x for x in data if isinstance(x, (dict, list))]
+        return objs
+
+    def _normalize_by_prompt(self, prompt_type: Optional[str], objs: List[Any]) -> List[Dict[str, Any]]:
+        """Normaliza listas de objetos según el tipo de prompt. Aplana estructuras conocidas.
+        - desembolsos: aplanar {desembolsos:{proyectados,realizados}, metadata}
+        - productos: pasar tal cual (cada dict es un producto)
+        - auditoria: pasar tal cual
+        """
+        norm: List[Dict[str, Any]] = []
+        if not objs:
+            return norm
+
+        if prompt_type == 'desembolsos':
+            for item in objs:
+                if isinstance(item, dict) and isinstance(item.get('desembolsos'), dict):
+                    meta = item.get('metadata') if isinstance(item.get('metadata'), dict) else {}
+                    for k in ('proyectados', 'realizados'):
+                        arr = item['desembolsos'].get(k)
+                        if isinstance(arr, list):
+                            for row in arr:
+                                if isinstance(row, dict):
+                                    rec = dict(row)
+                                    rec['tipo_registro_norm'] = 'realizado' if k == 'realizados' else 'proyectado'
+                                    # mezclar metadata útil
+                                    for mk, mv in meta.items():
+                                        rec.setdefault(mk, mv)
+                                    norm.append(rec)
+                elif isinstance(item, dict):
+                    norm.append(item)
+        else:
+            # productos / auditoria / otros: pasar dicts tal cual
+            for item in objs:
+                if isinstance(item, dict):
+                    norm.append(item)
+        return norm
     
     def _extract_json_content(self, content: str) -> Any:
         """
@@ -918,10 +1064,17 @@ class BatchResultsProcessor:
                     # Extraer solo el contenido de cada resultado
                     content_list = []
                     for result in prompt_results:
-                        if result.get('content'):
-                            content = result['content']
-                            parsed_content = self._extract_json_content(content)
-                            content_list.append(parsed_content)
+                        if result.get('content') is None:
+                            continue
+                        content = result['content']
+                        # Si ya viene objeto/dict, usar directamente; si es string, parsear a lista
+                        if isinstance(content, dict):
+                            content_list.append(content)
+                        elif isinstance(content, str):
+                            parsed_many = self._parse_multiple_json_objects(content)
+                            normalized_many = self._normalize_by_prompt(prompt_type, parsed_many)
+                            if normalized_many:
+                                content_list.extend(normalized_many)
                     
                     # Guardar archivo separado por prompt
                     prompt_filename = f"{prompt_type}.json"
