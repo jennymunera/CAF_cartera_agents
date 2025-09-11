@@ -501,9 +501,9 @@ class OpenAIBatchProcessor:
             
             # Crear diccionario de prompts para acceso por número
             self.prompts = {
-                'prompt_1': PROMPT_PRODUCTOS,
+                'prompt_1': PROMPT_AUDITORIA,
                 'prompt_2': PROMPT_DESEMBOLSOS, 
-                'prompt_3': PROMPT_AUDITORIA
+                'prompt_3': PROMPT_PRODUCTOS
             }
             
             self.logger.info("✅ Prompts cargados exitosamente desde constantes")
