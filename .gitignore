@@ -164,6 +164,15 @@ cython_debug/
 .env.development
 .env.production
 
+# Azure Functions local settings (contains secrets)
+azure_function/local.settings.json
+azure_function/*.local.settings.json
+azure_function/*.env
+
+# Azure Functions build artifacts
+azure_function/.python_packages/
+azure_function/bin/
+
 # Log files
 *.log
 main_processing.log
