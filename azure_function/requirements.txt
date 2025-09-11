@@ -1,0 +1,31 @@
+# Azure Functions Core
+azure-functions>=1.18.0
+
+# Azure SDK dependencies
+azure-ai-documentintelligence>=1.0.0
+azure-core>=1.29.0
+azure-storage-blob>=12.19.0
+azure-servicebus>=7.11.0
+azure-monitor-opentelemetry>=1.2.0
+
+# OpenAI dependencies
+openai>=1.0.0
+
+# Utility dependencies
+python-dotenv>=1.0.0
+tiktoken>=0.5.0
+
+# Standard dependencies
+requests>=2.31.0
+pathlib2>=2.3.7
+
+# JSON handling
+jsonschema>=4.17.0
+
+# Logging and monitoring
+opencensus-ext-azure>=1.1.13
+opencensus-ext-logging>=0.1.1
+
+# Development and testing (optional)
+pytest>=7.4.0
+pytest-asyncio>=0.21.0

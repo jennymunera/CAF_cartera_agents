@@ -1,0 +1,26 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "FUNCTIONS_EXTENSION_VERSION": "~4",
+    "PYTHON_ISOLATE_WORKER_DEPENDENCIES": "1",
+    
+    "ServiceBusConnectionString": "Endpoint=sb://sb-messaging-mvp-cartera-cr.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=YOUR_SERVICE_BUS_KEY",
+    
+    "AZURE_STORAGE_ACCOUNT": "asmvpcarteracr",
+    "AZURE_STORAGE_KEY": "YOUR_STORAGE_KEY",
+    
+    "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT": "YOUR_DOCUMENT_INTELLIGENCE_ENDPOINT",
+    "AZURE_DOCUMENT_INTELLIGENCE_KEY": "YOUR_DOCUMENT_INTELLIGENCE_KEY",
+    
+    "AZURE_OPENAI_API_KEY": "YOUR_OPENAI_API_KEY",
+    "AZURE_OPENAI_ENDPOINT": "https://OpenAI-Tech2.openai.azure.com/",
+    "AZURE_OPENAI_API_VERSION": "2024-12-01-preview",
+    "AZURE_OPENAI_DEPLOYMENT_NAME": "gpt-4",
+    
+    "APPINSIGHTS_INSTRUMENTATIONKEY": "YOUR_APP_INSIGHTS_KEY",
+    "APPLICATIONINSIGHTS_CONNECTION_STRING": "InstrumentationKey=YOUR_APP_INSIGHTS_KEY;IngestionEndpoint=https://westus2-1.in.applicationinsights.azure.com/;LiveEndpoint=https://westus2.livediagnostics.monitor.azure.com/"
+  },
+  "ConnectionStrings": {}
+}

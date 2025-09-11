@@ -1,0 +1,54 @@
+{
+  "version": "2.0",
+  "logging": {
+    "applicationInsights": {
+      "samplingSettings": {
+        "isEnabled": true,
+        "excludedTypes": "Request"
+      }
+    },
+    "logLevel": {
+      "default": "Information",
+      "Host.Results": "Error",
+      "Function": "Information",
+      "Host.Aggregator": "Trace"
+    }
+  },
+  "functionTimeout": "00:30:00",
+  "healthMonitor": {
+    "enabled": true,
+    "healthCheckInterval": "00:00:10",
+    "healthCheckWindow": "00:02:00",
+    "healthCheckThreshold": 6,
+    "counterThreshold": 0.80
+  },
+  "singleton": {
+    "lockPeriod": "00:00:15",
+    "listenerLockPeriod": "00:01:00",
+    "listenerLockRecoveryPollingInterval": "00:01:00",
+    "lockAcquisitionTimeout": "00:01:00",
+    "lockAcquisitionPollingInterval": "00:00:03"
+  },
+  "extensions": {
+    "serviceBus": {
+      "prefetchCount": 1,
+      "messageHandlerOptions": {
+        "autoComplete": true,
+        "maxConcurrentCalls": 1,
+        "maxAutoRenewDuration": "00:30:00"
+      },
+      "sessionHandlerOptions": {
+        "autoComplete": false,
+        "messageWaitTimeout": "00:00:30",
+        "maxAutoRenewDuration": "00:55:00",
+        "maxConcurrentSessions": 1
+      }
+    }
+  },
+  "retry": {
+    "strategy": "exponentialBackoff",
+    "maxRetryCount": 3,
+    "minimumInterval": "00:00:02",
+    "maximumInterval": "00:00:30"
+  }
+}
