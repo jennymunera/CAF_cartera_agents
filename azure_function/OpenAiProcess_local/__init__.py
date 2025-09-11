@@ -104,11 +104,15 @@ def main(msg: func.ServiceBusMessage) -> None:
 
 def setup_document_intelligence() -> DocumentIntelligenceProcessor:
     """Configurar procesador de Document Intelligence."""
+    # En entorno Azure Functions, el filesystem es read-only excepto /tmp.
+    # Usar rutas efímeras seguras para evitar errores (no se usan para persistencia real).
+    tmp_input = "/tmp/input_docs"
+    tmp_output = "/tmp/output_docs"
     return DocumentIntelligenceProcessor(
         endpoint=os.environ['AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT'],
         api_key=os.environ['AZURE_DOCUMENT_INTELLIGENCE_KEY'],
-        input_dir="input_docs",
-        output_dir="output_docs",
+        input_dir=tmp_input,
+        output_dir=tmp_output,
         auto_chunk=False
     )
 
