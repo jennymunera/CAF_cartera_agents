@@ -771,11 +771,12 @@ class BatchResultsProcessor:
                         document_name = None
 
             # Extraer información de chunk si existe (proteger None)
+            # Importante: conservar document_name intacto para poder usarlo como nombre final de archivo
             if document_name and '_chunk_' in document_name:
-                chunk_match = document_name.split('_chunk_')
-                if len(chunk_match) == 2:
-                    document_name = chunk_match[0]
-                    chunk_info = f"chunk_{chunk_match[1]}"
+                parts = document_name.split('_chunk_')
+                if len(parts) == 2:
+                    # No modificar document_name; solo informar chunk_info
+                    chunk_info = f"chunk_{parts[1]}"
             
             # Extraer contenido de la respuesta
             choices = body.get('choices', [])
@@ -885,27 +886,37 @@ class BatchResultsProcessor:
         in_str = False
         esc = False
         for ch in text:
-            buf += ch
             if esc:
+                buf += ch
                 esc = False
                 continue
             if ch == '\\' and in_str:
+                buf += ch
                 esc = True
                 continue
             if ch == '"':
+                buf += ch
                 in_str = not in_str
                 continue
-            if not in_str:
-                if ch == '{':
-                    brace += 1
-                elif ch == '}':
-                    brace -= 1
-                    if brace == 0:
-                        candidate = buf.strip()
-                        data = try_json_loads(candidate)
-                        if isinstance(data, dict):
-                            objs.append(data)
-                            buf = ''
+            if not in_str and ch == '{':
+                # Inicio de un objeto; si no estábamos dentro de otro, reiniciar buffer
+                if brace == 0:
+                    buf = ''
+                brace += 1
+                buf += ch
+                continue
+            if not in_str and ch == '}':
+                buf += ch
+                brace -= 1
+                if brace == 0:
+                    candidate = buf.strip()
+                    data = try_json_loads(candidate)
+                    if isinstance(data, dict):
+                        objs.append(data)
+                        buf = ''
+                continue
+            # Caracter normal
+            buf += ch
 
         # Si no se separó nada, intentar reparaciones leves sobre todo el texto
         if not objs:
@@ -954,6 +965,55 @@ class BatchResultsProcessor:
                 if isinstance(item, dict):
                     norm.append(item)
         return norm
+
+    def _materialize_content_for_file(self, prompt_type: Optional[str], content: Any) -> Any:
+        """
+        Garantiza que el contenido a guardar en cada archivo por documento sea JSON parseado:
+        - Si viene con wrapper {'_raw_text': '<json>'}, parsea ese JSON y devuelve el objeto/array.
+        - Si es string JSON, lo parsea.
+        - Si ya es dict/list, lo retorna tal cual.
+        - Si falla el parseo, devuelve un contenido sin los campos de wrapper cuando sea posible.
+        """
+        try:
+            # Caso wrapper con _raw_text
+            if isinstance(content, dict) and '_raw_text' in content:
+                raw = content.get('_raw_text')
+                # Intentar parsear si es string
+                if isinstance(raw, str):
+                    # Primero: extraer JSON de posibles fences o texto
+                    extracted = self._extract_json_content(raw)
+                    if isinstance(extracted, (dict, list)):
+                        return extracted
+                    # Segundo: intentar múltiples objetos concatenados o lista
+                    many = self._parse_multiple_json_objects(raw)
+                    if many:
+                        # Si hay un único objeto, devolverlo; si varios, devolver lista
+                        return many if len(many) > 1 else many[0]
+                # Si ya viene como dict/list en _raw_text
+                if isinstance(raw, (dict, list)):
+                    return raw
+                # Fallback: eliminar campos de wrapper y devolver el resto
+                cleaned = dict(content)
+                cleaned.pop('_raw_text', None)
+                cleaned.pop('_parse_error', None)
+                return cleaned if cleaned else raw
+
+            # Caso string JSON directo
+            if isinstance(content, str):
+                extracted = self._extract_json_content(content)
+                if isinstance(extracted, (dict, list)):
+                    return extracted
+                # Intentar múltiples objetos
+                many = self._parse_multiple_json_objects(content)
+                if many:
+                    return many if len(many) > 1 else many[0]
+                return content
+
+            # dict/list ya parseado
+            return content
+        except Exception:
+            # Si algo falla, devolver el contenido original para no perder datos
+            return content
     
     def _extract_json_content(self, content: str) -> Any:
         """
@@ -1040,7 +1100,8 @@ class BatchResultsProcessor:
                 raise ValueError(f"Información de proyecto faltante en metadata del batch {batch_id}")
             
             # Usar nombres deterministas por batch para evitar duplicados por timestamps
-            results_by_document_filename = f"results_by_document_{batch_id}.json"
+            # Alinear con convención usada en LLM_output: results_by_document_batch_<batch_id>.json
+            results_by_document_filename = f"results_by_document_batch_{batch_id}.json"
             self.blob_client.save_result(
                 project_name=project_name,
                 result_name=results_by_document_filename,
@@ -1048,51 +1109,119 @@ class BatchResultsProcessor:
             )
             
             # Guardar resultados organizados por prompt
-            results_by_prompt_filename = f"results_by_prompt_{batch_id}.json"
+            # Alinear nombre con convención por batch
+            results_by_prompt_filename = f"results_by_prompt_batch_{batch_id}.json"
             self.blob_client.save_result(
                 project_name=project_name,
                 result_name=results_by_prompt_filename,
                 content=results.get('results_by_prompt', {})
             )
             
-            # Crear archivos separados por tipo de prompt (auditoria.json, productos.json, desembolsos.json)
-            results_by_prompt = results.get('results_by_prompt', {})
+            # Crear archivos separados por tipo de prompt concatenando los JSON individuales como JSONL
             prompt_files_saved = []
-            
-            for prompt_type, prompt_results in results_by_prompt.items():
-                if prompt_results:  # Solo procesar si hay resultados
-                    # Extraer solo el contenido de cada resultado
-                    content_list = []
-                    for result in prompt_results:
-                        if result.get('content') is None:
+            folder_map = {
+                'auditoria': 'Auditoria',
+                'desembolsos': 'Desembolsos',
+                'productos': 'Productos'
+            }
+            for prompt_type, folder in folder_map.items():
+                prefix = f"basedocuments/{project_name}/results/{folder}/"
+                try:
+                    entries = self.blob_client.list_blobs_with_prefix(prefix=prefix)
+                except Exception as e:
+                    self.logger.warning(f"No se pudo listar carpeta {folder}: {str(e)}")
+                    entries = []
+
+                lines: List[str] = []
+                count = 0
+                for entry in entries:
+                    name = entry.get('name') if isinstance(entry, dict) else None
+                    if not name or not name.endswith('.json'):
+                        continue
+                    try:
+                        data_bytes = self.blob_client.download_blob(None, name)
+                        obj = json.loads(data_bytes)
+                        # Escribir cada JSON como una línea
+                        lines.append(json.dumps(obj, ensure_ascii=False))
+                        count += 1
+                    except Exception as e:
+                        self.logger.warning(f"No se pudo agregar {name} a {prompt_type}.json: {str(e)}")
+
+                # Fallback: si no se pudo leer nada desde storage, construir JSONL desde la estructura en memoria
+                if not lines:
+                    by_doc = results.get('results_by_document', {}) or {}
+                    for doc_name, sections in by_doc.items():
+                        if not isinstance(sections, dict):
                             continue
-                        content = result['content']
-                        # Si ya viene objeto/dict, usar directamente; si es string, parsear a lista
-                        if isinstance(content, dict):
-                            content_list.append(content)
-                        elif isinstance(content, str):
-                            parsed_many = self._parse_multiple_json_objects(content)
-                            normalized_many = self._normalize_by_prompt(prompt_type, parsed_many)
-                            if normalized_many:
-                                content_list.extend(normalized_many)
-                    
-                    # Guardar archivo separado por prompt
-                    prompt_filename = f"{prompt_type}.json"
-                    prompt_content = {
-                        "prompt_type": prompt_type,
-                        "total_results": len(content_list),
-                        "results": content_list
-                    }
-                    self.blob_client.save_result(
-                        project_name=project_name,
-                        result_name=prompt_filename,
-                        content=prompt_content
-                    )
-                    
-                    prompt_files_saved.append(f"{prompt_type}.json ({len(content_list)} elementos)")
-                    self.logger.info(f"Archivo {prompt_type}.json guardado: {len(content_list)} elementos")
+                        items = sections.get(prompt_type) or []
+                        for item in items:
+                            if not isinstance(item, dict):
+                                continue
+                            content = item.get('content')
+                            if content is None:
+                                continue
+                            materialized = self._materialize_content_for_file(prompt_type, content)
+                            try:
+                                lines.append(json.dumps(materialized, ensure_ascii=False))
+                            except Exception:
+                                # Como último recurso, guardar string del contenido
+                                if isinstance(materialized, str):
+                                    lines.append(materialized)
+                    count = len(lines)
+
+                jsonl_content = "\n".join(lines) + ("\n" if lines else "")
+                self.blob_client.save_result(
+                    project_name=project_name,
+                    result_name=f"{prompt_type}.json",
+                    content=jsonl_content
+                )
+                prompt_files_saved.append(f"{prompt_type}.json ({count} elementos)")
+                self.logger.info(f"Archivo {prompt_type}.json guardado: {count} elementos")
             
+            # Guardar archivos individuales por documento y por tipo (estructura LLM_output)
+            # Estructura esperada:
+            #  - results/Productos/<documento>_producto_XXX.json
+            #  - results/Desembolsos/<documento>_desembolso_XXX.json
+            #  - results/Auditoria/<documento>_chunk_XXX_auditoria.json
+            by_doc = results.get('results_by_document', {}) or {}
+            folder_map = {
+                'productos': 'Productos',
+                'desembolsos': 'Desembolsos',
+                'auditoria': 'Auditoria'
+            }
+
+            for doc_name, sections in by_doc.items():
+                if not isinstance(sections, dict):
+                    continue
+                for prompt_type, items in sections.items():
+                    if not items:
+                        continue
+                    folder = folder_map.get(prompt_type, prompt_type.capitalize())
+                    for item in items:
+                        if not isinstance(item, dict):
+                            continue
+                        content = item.get('content')
+                        if content is None:
+                            continue
+                        # Materializar contenido: parsear _raw_text o strings JSON
+                        content = self._materialize_content_for_file(prompt_type, content)
+                        # Nombre exacto: usar document_name del item (sin alterar)
+                        filename = item.get('document_name') or doc_name
+                        # Asegurar extensión .json
+                        filename = filename if filename.lower().endswith('.json') else f"{filename}.json"
+
+                        result_path = f"{folder}/{filename}"
+                        try:
+                            self.blob_client.save_result(
+                                project_name=project_name,
+                                result_name=result_path,
+                                content=content
+                            )
+                        except Exception as e:
+                            self.logger.warning(f"No se pudo guardar archivo por documento {result_path}: {str(e)}")
+
             # Guardar resumen del batch
+            results_by_prompt = results.get('results_by_prompt', {}) or {}
             summary = {
                 "project_name": project_name,
                 "batch_id": batch_id,
@@ -1109,9 +1238,7 @@ class BatchResultsProcessor:
                     "separated_prompts": prompt_files_saved
                 },
                 "documents_processed": len(results.get('results_by_document', {})),
-                "prompts_results": {
-                    prompt_type: len(prompt_results) for prompt_type, prompt_results in results_by_prompt.items()
-                }
+                "prompts_results": {prompt_type: len(prompt_results) for prompt_type, prompt_results in results_by_prompt.items()}
             }
             
             summary_filename = f"batch_summary_{batch_id}.json"
