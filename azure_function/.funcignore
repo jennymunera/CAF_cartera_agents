@@ -1,0 +1,34 @@
+# Exclusions for Azure Functions packaging
+
+# Local settings and secrets
+local.settings.json
+*.local.settings.json
+*.env
+
+# VCS and IDE
+.git/
+.github/
+.vscode/
+.idea/
+
+# Python venvs and caches
+.venv/
+venv/
+ENV/
+__pycache__/
+*.pyc
+
+# Build artifacts
+bin/
+obj/
+.python_packages/ # kept when we package explicitly
+
+# Tests and local data
+tests/
+input_docs/
+output_docs/
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db

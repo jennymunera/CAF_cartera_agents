@@ -36,6 +36,7 @@ Write-Host "   - Storage Account: $StorageAccount" -ForegroundColor White
 Write-Host "   - Service Bus: $ServiceBusNamespace" -ForegroundColor White
 Write-Host "   - Queue: $QueueName" -ForegroundColor White
 Write-Host "   - Location: $Location" -ForegroundColor White
+Write-Host "   - Using active Python environment (manual venv)" -ForegroundColor White
 
 # Configurar suscripción
 Write-Host "🔧 Configurando suscripción..." -ForegroundColor Blue
@@ -52,34 +53,41 @@ if ($rgExists -eq "false") {
     Write-Host "✅ Resource Group existe" -ForegroundColor Green
 }
 
-# Crear Application Insights
-Write-Host "📊 Creando Application Insights..." -ForegroundColor Blue
-$appInsights = az monitor app-insights component create `
+# Verificar/Crear Application Insights
+Write-Host "📊 Validando Application Insights..." -ForegroundColor Blue
+$existingAI = az monitor app-insights component show `
     --app $AppInsightsName `
-    --location $Location `
     --resource-group $ResourceGroup `
-    --application-type web `
     --query "instrumentationKey" `
-    --output tsv
+    --output tsv 2>$null
 
-if ($appInsights) {
-    Write-Host "✅ Application Insights creado: $appInsights" -ForegroundColor Green
+if ($existingAI) {
+    $appInsights = $existingAI
+    Write-Host "✅ Application Insights existe: $AppInsightsName" -ForegroundColor Green
 } else {
-    Write-Host "⚠️  Application Insights ya existe o error en creación" -ForegroundColor Yellow
-    $appInsights = az monitor app-insights component show `
+    Write-Host "📊 Creando Application Insights..." -ForegroundColor Blue
+    $appInsights = az monitor app-insights component create `
         --app $AppInsightsName `
+        --location $Location `
         --resource-group $ResourceGroup `
+        --application-type web `
         --query "instrumentationKey" `
         --output tsv
+    if ($appInsights) {
+        Write-Host "✅ Application Insights creado: $appInsights" -ForegroundColor Green
+    } else {
+        Write-Host "❌ No fue posible obtener/crear Application Insights" -ForegroundColor Red
+        exit 1
+    }
 }
 
 # Verificar Storage Account
 Write-Host "💾 Verificando Storage Account..." -ForegroundColor Blue
-$storageExists = az storage account check-name --name $StorageAccount --query "nameAvailable" --output tsv
-if ($storageExists -eq "false") {
+$storageShow = az storage account show --name $StorageAccount --resource-group $ResourceGroup --query "name" --output tsv 2>$null
+if ($storageShow) {
     Write-Host "✅ Storage Account existe" -ForegroundColor Green
 } else {
-    Write-Host "❌ Storage Account $StorageAccount no existe" -ForegroundColor Red
+    Write-Host "❌ Storage Account $StorageAccount no existe en RG $ResourceGroup" -ForegroundColor Red
     exit 1
 }
 
@@ -129,24 +137,39 @@ if (-not $queueExists) {
     Write-Host "✅ Cola Service Bus existe" -ForegroundColor Green
 }
 
-# Crear Function App
-Write-Host "⚡ Creando Function App..." -ForegroundColor Blue
-$functionApp = az functionapp create `
-    --resource-group $ResourceGroup `
-    --consumption-plan-location $Location `
-    --runtime python `
-    --runtime-version 3.11 `
-    --functions-version 4 `
-    --name $FunctionAppName `
-    --storage-account $StorageAccount `
-    --app-insights $AppInsightsName `
-    --query "name" `
-    --output tsv
-
-if ($functionApp) {
-    Write-Host "✅ Function App creado: $functionApp" -ForegroundColor Green
+# Verificar/Crear Function App
+Write-Host "⚡ Validando Function App..." -ForegroundColor Blue
+$faExists = az functionapp show --resource-group $ResourceGroup --name $FunctionAppName --query name --output tsv 2>$null
+if ($faExists) {
+    Write-Host "✅ Function App existe: $FunctionAppName" -ForegroundColor Green
 } else {
-    Write-Host "⚠️  Function App ya existe o error en creación" -ForegroundColor Yellow
+    # Normalizar ubicación a consumo si es necesario
+    $validLocs = az functionapp list-consumption-locations --query "[].name" --output tsv 2>$null
+    $normalized = ($Location -replace "[\s-]", "").ToLower()
+    $chosenLoc = $validLocs | Where-Object { $_ -eq $normalized } | Select-Object -First 1
+    if (-not $chosenLoc) {
+        Write-Host "⚠️  Ubicación '$Location' no está en la lista de consumo. Se usará: $($validLocs[0])" -ForegroundColor Yellow
+        $chosenLoc = $validLocs[0]
+    }
+
+    Write-Host "⚡ Creando Function App en $chosenLoc..." -ForegroundColor Blue
+    $functionApp = az functionapp create `
+        --resource-group $ResourceGroup `
+        --consumption-plan-location $chosenLoc `
+        --runtime python `
+        --runtime-version 3.11 `
+        --functions-version 4 `
+        --name $FunctionAppName `
+        --storage-account $StorageAccount `
+        --app-insights $AppInsightsName `
+        --query "name" `
+        --output tsv
+    if ($functionApp) {
+        Write-Host "✅ Function App creado: $functionApp" -ForegroundColor Green
+    } else {
+        Write-Host "❌ Error creando Function App" -ForegroundColor Red
+        exit 1
+    }
 }
 
 # Configurar Application Settings
@@ -178,30 +201,80 @@ if (Test-Path $envFile) {
             "AZURE_OPENAI_API_VERSION=$($envVars['AZURE_OPENAI_API_VERSION'])" `
             "AZURE_OPENAI_DEPLOYMENT_NAME=$($envVars['AZURE_OPENAI_DEPLOYMENT_NAME'])" `
             "APPINSIGHTS_INSTRUMENTATIONKEY=$appInsights" `
-            "PYTHON_ISOLATE_WORKER_DEPENDENCIES=1"
+            "PYTHON_ISOLATE_WORKER_DEPENDENCIES=1" `
+            "WEBSITE_RUN_FROM_PACKAGE=1" `
+            "FUNCTIONS_EXTENSION_VERSION=~4" `
+            "FUNCTIONS_WORKER_RUNTIME=python"
             
     Write-Host "✅ Variables de entorno configuradas" -ForegroundColor Green
 } else {
     Write-Host "⚠️  Archivo .env no encontrado. Configurar manualmente las variables." -ForegroundColor Yellow
 }
 
-# Crear archivo ZIP para deployment
-Write-Host "📦 Creando paquete de deployment..." -ForegroundColor Blue
-$zipFile = "function-deployment.zip"
-if (Test-Path $zipFile) {
-    Remove-Item $zipFile
+# Cargar y aplicar variables desde azure_function/local.settings.json si existe
+try {
+    $localSettingsFile = "local.settings.json"
+    if (Test-Path $localSettingsFile) {
+        Write-Host "📄 Leyendo variables desde $localSettingsFile ..." -ForegroundColor Blue
+        $ls = Get-Content $localSettingsFile -Raw | ConvertFrom-Json
+        if ($ls -and $ls.Values) {
+            $kv = @()
+            $ls.Values.PSObject.Properties | ForEach-Object {
+                # Construir 'KEY=VALUE'
+                $k = $_.Name
+                $v = [string]$_.Value
+                if (-not [string]::IsNullOrWhiteSpace($k) -and -not [string]::IsNullOrWhiteSpace($v)) {
+                    $kv += "$k=$v"
+                }
+            }
+            if ($kv.Count -gt 0) {
+                az functionapp config appsettings set `
+                    --name $FunctionAppName `
+                    --resource-group $ResourceGroup `
+                    --settings $kv | Out-Null
+                Write-Host "✅ App Settings aplicadas desde local.settings.json ($($kv.Count) claves)" -ForegroundColor Green
+            } else {
+                Write-Host "ℹ️  No se encontraron claves en Values de $localSettingsFile" -ForegroundColor Yellow
+            }
+        }
+    } else {
+        Write-Host "ℹ️  $localSettingsFile no existe, se omite esta etapa" -ForegroundColor Yellow
+    }
+} catch {
+    Write-Host "⚠️  Error aplicando variables desde local.settings.json: $($_.Exception.Message)" -ForegroundColor Yellow
 }
 
-# Comprimir archivos (excluyendo archivos innecesarios)
-Compress-Archive -Path "OpenAiProcess_local", "shared", "requirements.txt", "host.json" -DestinationPath $zipFile
-Write-Host "✅ Paquete creado: $zipFile" -ForegroundColor Green
-
-# Deploy Function
-Write-Host "🚀 Deployando Function..." -ForegroundColor Blue
-az functionapp deployment source config-zip `
-    --resource-group $ResourceGroup `
+# Build remoto con Oryx (no instala dependencias localmente)
+Write-Host "🛠️  Habilitando build remoto (Oryx)" -ForegroundColor Blue
+az functionapp config appsettings set `
     --name $FunctionAppName `
-    --src $zipFile
+    --resource-group $ResourceGroup `
+    --settings `
+        "SCM_DO_BUILD_DURING_DEPLOYMENT=1" `
+        "ENABLE_ORYX_BUILD=1" | Out-Null
+Write-Host "✅ Build remoto habilitado (SCM_DO_BUILD_DURING_DEPLOYMENT)" -ForegroundColor Green
+
+# Deploy con Oryx (build remoto)
+Write-Host "🚀 Deployando Function con Oryx (remote build)..." -ForegroundColor Blue
+
+# Preferir Func Core Tools, que soporta --build remote fiable para Functions
+$funcCmdAvailable = Get-Command func -ErrorAction SilentlyContinue
+if ($funcCmdAvailable) {
+    $pubCmd = "func azure functionapp publish `"$FunctionAppName`" --build remote"
+    Write-Host "🔧 Ejecutando: $pubCmd" -ForegroundColor DarkGray
+    iex $pubCmd
+} else {
+    Write-Host "⚠️  Func Core Tools no encontrado. Para build remoto (Oryx) instala: npm i -g azure-functions-core-tools@4" -ForegroundColor Yellow
+    Write-Host "ℹ️  Como fallback haré zip deploy sin build remoto (puede requerir .python_packages)" -ForegroundColor Yellow
+    $zipFile = "function-deployment.zip"
+    if (Test-Path $zipFile) { Remove-Item $zipFile }
+    $pathsToZip = @("OpenAiProcess_local", "shared", "requirements.txt", "host.json")
+    Compress-Archive -Path $pathsToZip -DestinationPath $zipFile
+    az functionapp deployment source config-zip `
+        --resource-group $ResourceGroup `
+        --name $FunctionAppName `
+        --src $zipFile
+}
 
 Write-Host "✅ Deployment completado" -ForegroundColor Green
 
@@ -224,7 +297,7 @@ Write-Host "📨 Para probar, envía un mensaje a la cola con formato:" -Foregro
 Write-Host '   {"projectName": "test_project", "requestId": "12345"}' -ForegroundColor White
 
 # Limpiar archivo temporal
-Remove-Item $zipFile -ErrorAction SilentlyContinue
+if ($zipFile -and (Test-Path $zipFile)) { Remove-Item $zipFile -ErrorAction SilentlyContinue }
 
 Write-Host "" -ForegroundColor White
 Write-Host "✅ Script completado" -ForegroundColor Green
