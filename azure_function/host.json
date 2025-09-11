@@ -1,5 +1,9 @@
 {
   "version": "2.0",
+  "extensionBundle": {
+    "id": "Microsoft.Azure.Functions.ExtensionBundle",
+    "version": "[4.*, 5.0.0)"
+  },
   "logging": {
     "applicationInsights": {
       "samplingSettings": {
@@ -8,10 +12,10 @@
       }
     },
     "logLevel": {
-      "default": "Information",
+      "default": "Warning",
       "Host.Results": "Error",
       "Function": "Information",
-      "Host.Aggregator": "Trace"
+      "Host.Aggregator": "Error"
     }
   },
   "functionTimeout": "00:30:00",
