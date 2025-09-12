@@ -170,7 +170,7 @@ def main(mytimer: func.TimerRequest) -> None:
         logging.error(f"Error en PoolingProcess: {str(e)}")
         raise
 
-    class BatchResultsProcessor:
+class BatchResultsProcessor:
     """
     Procesador de resultados de batches de OpenAI basado en la lógica de results.py
     """
