@@ -185,7 +185,7 @@ CFA*/
 *.temp
 
 # IDE files
-.vscode/
+
 *.swp
 *.swo
 *~

@@ -202,7 +202,7 @@ Pero si existen período y monto, emite el registro.
 
 Dónde buscar (por campo):
 
-Código de operación (CFX): portada/primeras páginas, cabecera del cronograma, secciones administrativas. Variantes: “CFX”, “Código CFX”, “Operación CFX”, “Op. CFX”.
+Código de operación (CFA): portada/primeras páginas, cabecera del cronograma, secciones administrativas. Variantes: “CFA”, “Código CFA”, “Operación CFA”, “Op. CFA”.
 
 Fecha de desembolso (período):
 
@@ -293,7 +293,7 @@ Salida esperada (una sola fila JSON):
 
 Esquema de salida JSON (por registro)
 {
-  "codigo_CFX": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
+  "codigo_CFA": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
 
   "tipo_registro": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
   "tipo_registro_norm": null,  // proyectado | realizado
