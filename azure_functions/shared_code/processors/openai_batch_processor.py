@@ -645,14 +645,18 @@ class OpenAIBatchProcessor:
             
             self.logger.info(f"📄 Archivo batch temporal creado: {batch_input_file} ({len(batch_requests)} requests)")
             
-            # Subir archivo a Azure
-            uploaded = self.client.files.create(
-                file=open(batch_input_file, "rb"),
-                purpose="batch"
-            )
+            # Subir archivo a Azure asegurando cierre del handle en Windows
+            with open(batch_input_file, "rb") as fh:
+                uploaded = self.client.files.create(
+                    file=fh,
+                    purpose="batch"
+                )
             
-            # Limpiar archivo temporal
-            os.unlink(batch_input_file)
+            # Limpiar archivo temporal (handle ya cerrado)
+            try:
+                os.unlink(batch_input_file)
+            except Exception as e:
+                self.logger.warning(f"No se pudo eliminar archivo temporal {batch_input_file}: {str(e)}")
             
             # Crear batch job
             batch = self.client.batches.create(
@@ -784,11 +788,12 @@ class OpenAIBatchProcessor:
             
             self.logger.info(f"📄 Archivo batch temporal creado: {temp_batch_file} ({len(batch_requests)} requests)")
             
-            # Subir archivo a Azure
-            uploaded = self.client.files.create(
-                file=open(temp_batch_file, "rb"),
-                purpose="batch"
-            )
+            # Subir archivo a Azure (asegurar cierre de handle)
+            with open(temp_batch_file, "rb") as fh:
+                uploaded = self.client.files.create(
+                    file=fh,
+                    purpose="batch"
+                )
             
             # Crear batch job
             batch = self.client.batches.create(

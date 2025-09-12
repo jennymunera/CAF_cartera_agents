@@ -302,7 +302,7 @@ class BlobStorageClient:
             blob_client = self.container_client.get_blob_client(blob_path)
             
             # Convertir contenido según el tipo
-            if isinstance(content, dict):
+            if isinstance(content, (dict, list)):
                 data = json.dumps(content, ensure_ascii=False, indent=2).encode('utf-8')
                 content_type = 'application/json'
             elif isinstance(content, str):
@@ -372,12 +372,15 @@ class BlobStorageClient:
             blob_client = self.container_client.get_blob_client(blob_path)
             
             # Convertir contenido según el tipo
-            if isinstance(content, dict):
+            if isinstance(content, (dict, list)):
                 data = json.dumps(content, ensure_ascii=False, indent=2).encode('utf-8')
                 content_type = 'application/json'
             elif isinstance(content, str):
                 data = content.encode('utf-8')
                 content_type = 'text/plain'
+            elif isinstance(content, (bytes, bytearray)):
+                data = bytes(content)
+                content_type = 'application/octet-stream'
             else:
                 raise ValueError(f"Tipo de contenido no soportado: {type(content)}")
             

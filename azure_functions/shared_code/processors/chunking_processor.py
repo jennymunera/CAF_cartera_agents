@@ -1,4 +1,5 @@
 import re
+import os
 import tiktoken
 import json
 from typing import List, Dict, Any, Tuple
@@ -32,6 +33,8 @@ class ChunkingProcessor:
         self.generate_jsonl = generate_jsonl
         self.jsonl_handler = JSONLHandler() if generate_jsonl else None
         self.blob_client = BlobStorageClient()
+        # Control de guardado de metadatos de chunking (desactivado por defecto)
+        self.save_chunk_metadata = str(os.getenv("SAVE_CHUNKING_METADATA", "false")).lower() in ("1", "true", "yes", "on")
         
         # Inicializar el tokenizer
         try:
@@ -389,12 +392,12 @@ class ChunkingProcessor:
                 logger.info(f"Complete corpus JSONL generated: {corpus_jsonl_path}")
             logger.info(f"Total JSONL records: {len(all_jsonl_records)}")
         
-        # Guardar metadatos del chunking en la carpeta docs
-        metadata_file = docs_path / f"{project_name}_chunking_metadata.json"
-        with open(metadata_file, 'w', encoding='utf-8') as f:
-            json.dump(chunking_result, f, indent=2, ensure_ascii=False)
-        
-        saved_files.append(str(metadata_file))
+        # Guardar metadatos del chunking en la carpeta docs (opcional)
+        if self.save_chunk_metadata:
+            metadata_file = docs_path / f"{project_name}_chunking_metadata.json"
+            with open(metadata_file, 'w', encoding='utf-8') as f:
+                json.dump(chunking_result, f, indent=2, ensure_ascii=False)
+            saved_files.append(str(metadata_file))
         
         logger.info(f"\nChunks saved:")
         for file in saved_files:
@@ -434,12 +437,13 @@ class ChunkingProcessor:
                 saved_files.append(chunk_blob_path)
                 logger.info(f"Chunk JSON saved to blob: {chunk_blob_path}")
             
-            # Guardar metadatos del chunking
-            metadata_filename = f"{project_name}_chunking_metadata.json"
-            metadata_path = f"basedocuments/{project_name}/processed/chunks/{metadata_filename}"
-            metadata_content = json.dumps(chunking_result, indent=2, ensure_ascii=False)
-            blob_client.upload_blob(metadata_path, metadata_content)
-            saved_files.append(metadata_path)
+            # Guardar metadatos del chunking (opcional)
+            if self.save_chunk_metadata:
+                metadata_filename = f"{project_name}_chunking_metadata.json"
+                metadata_path = f"basedocuments/{project_name}/processed/chunks/{metadata_filename}"
+                metadata_content = json.dumps(chunking_result, indent=2, ensure_ascii=False)
+                blob_client.upload_blob(metadata_path, metadata_content)
+                saved_files.append(metadata_path)
             
             logger.info(f"Chunks saved to blob storage:")
             for file in saved_files:
@@ -497,8 +501,10 @@ class ChunkingProcessor:
             enhanced_metadata['document_stem'] = doc_stem
             
             metadata_content = json.dumps(enhanced_metadata, indent=2, ensure_ascii=False)
-            blob_client.upload_blob(metadata_path, metadata_content)
-            saved_files.append(metadata_path)
+            if self.save_chunk_metadata:
+                blob_client.upload_blob(metadata_path, metadata_content)
+            if self.save_chunk_metadata:
+                saved_files.append(metadata_path)
             
             logger.info(f"Document {document_name} chunks saved to blob storage:")
             for file in saved_files:

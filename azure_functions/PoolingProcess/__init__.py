@@ -1216,11 +1216,25 @@ class BatchResultsProcessor:
                                     lines.append(materialized)
                     count = len(lines)
 
-                jsonl_content = "\n".join(lines) + ("\n" if lines else "")
+                # Convertir líneas JSONL a arreglo JSON válido de objetos
+                array_items: List[Dict[str, Any]] = []
+                for _ln in lines:
+                    try:
+                        parsed = json.loads(_ln)
+                        if isinstance(parsed, dict):
+                            array_items.append(parsed)
+                        elif isinstance(parsed, list):
+                            for it in parsed:
+                                if isinstance(it, dict):
+                                    array_items.append(it)
+                    except Exception:
+                        # Omitir entradas inválidas
+                        pass
+
                 self.blob_client.save_result(
                     project_name=project_name,
                     result_name=f"{prompt_type}.json",
-                    content=jsonl_content
+                    content=array_items
                 )
                 prompt_files_saved.append(f"{prompt_type}.json ({count} elementos)")
                 self.logger.info(f"Archivo {prompt_type}.json guardado: {count} elementos")
