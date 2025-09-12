@@ -127,7 +127,7 @@ Salida esperada (una sola fila JSON):
 
 Esquema de salida JSON (por registro)
 {
-  "codigo_CFX": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
+  "codigo_CFA": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
 
   "tipo_registro": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
   "tipo_registro_norm": null,  // proyectado | realizado
