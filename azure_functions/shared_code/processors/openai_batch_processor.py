@@ -10,6 +10,7 @@ from pathlib import Path
 from openai import AzureOpenAI
 from shared_code.utils.app_insights_logger import get_logger
 from shared_code.utils.blob_storage_client import BlobStorageClient
+from shared_code.utils.cosmo_db_client import CosmosDBClient
 
 # Prompts como constantes
 PROMPT_AUDITORIA = '''
@@ -688,6 +689,24 @@ class OpenAIBatchProcessor:
             except Exception as e:
                 self.logger.warning(f"No se pudo guardar el manifest de requests: {str(e)}")
             
+            # Marcar en CosmosDB que el proyecto tiene un batch pendiente (best-effort)
+            try:
+                sharepoint_folder = os.environ.get("SHAREPOINT_FOLDER")
+                container_folder = os.environ.get("COSMOS_CONTAINER_FOLDER")
+                if sharepoint_folder and container_folder:
+                    doc_id = f"{sharepoint_folder}|{project_name}"
+                    cdb = CosmosDBClient()
+                    doc = cdb.read_item(doc_id, doc_id, container_folder)
+                    if doc is not None:
+                        doc["isBatchPending"] = True
+                        doc["jobBatchId"] = batch.id
+                        cdb.upsert_item(doc, container_folder)
+                        self.logger.info(f"CosmosDB folder marked pending: {doc_id}")
+                else:
+                    self.logger.warning("Cosmos env vars missing (SHAREPOINT_FOLDER/COSMOS_CONTAINER_FOLDER); skipping pending mark")
+            except Exception as e:
+                self.logger.warning(f"Could not mark CosmosDB pending for project {project_name}: {str(e)}")
+
             self.logger.info(f"✅ Batch job creado exitosamente:")
             self.logger.info(f"   📋 Batch ID: {batch.id}")
             self.logger.info(f"   📊 Total requests: {len(batch_requests)}")
@@ -799,7 +818,26 @@ class OpenAIBatchProcessor:
                 os.remove(temp_batch_file)
             except:
                 pass
-            
+
+            # Best-effort: marcar en Cosmos que el proyecto/documento tiene batch pendiente
+            try:
+                # Si los chunks vienen del flujo de documento individual, inferir project_name del document_name si es posible
+                project_name = os.environ.get("CURRENT_PROJECT_NAME")  # opcional si se setea antes
+                # No siempre tenemos proyecto aquí; por compatibilidad, no forzar.
+                sharepoint_folder = os.environ.get("SHAREPOINT_FOLDER")
+                container_folder = os.environ.get("COSMOS_CONTAINER_FOLDER")
+                if project_name and sharepoint_folder and container_folder:
+                    doc_id = f"{sharepoint_folder}|{project_name}"
+                    cdb = CosmosDBClient()
+                    doc = cdb.read_item(doc_id, doc_id, container_folder)
+                    if doc is not None:
+                        doc["isBatchPending"] = True
+                        doc["jobBatchId"] = batch.id
+                        cdb.upsert_item(doc, container_folder)
+                        self.logger.info(f"CosmosDB folder marked pending (chunks): {doc_id}")
+            except Exception as e:
+                self.logger.warning(f"Could not mark CosmosDB pending (chunks): {str(e)}")
+
             return batch_info
             
         except Exception as e:

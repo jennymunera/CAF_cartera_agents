@@ -6,7 +6,7 @@ import time
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Set
 from openai import AzureOpenAI
 
 # Agregar el directorio padre al path para importar los módulos compartidos
@@ -15,6 +15,8 @@ sys.path.append(str(Path(__file__).parent.parent))
 # Importar utilidades desde shared_code
 from shared_code.utils.app_insights_logger import get_logger, generate_operation_id
 from shared_code.utils.blob_storage_client import BlobStorageClient
+from shared_code.utils.cosmo_db_client import CosmosDBClient
+from shared_code.utils.pooling_event_timer_processor import PoolingEventTimerProcessor
 
 def _load_local_settings_env():
     """Carga azure_functions/local.settings.json a os.environ en entorno local.
@@ -168,7 +170,7 @@ def main(mytimer: func.TimerRequest) -> None:
         logging.error(f"Error en PoolingProcess: {str(e)}")
         raise
 
-class BatchResultsProcessor:
+    class BatchResultsProcessor:
     """
     Procesador de resultados de batches de OpenAI basado en la lógica de results.py
     """
@@ -226,9 +228,28 @@ class BatchResultsProcessor:
             
             self.logger.info(f"Proyectos encontrados: {list(projects)}")
             
-            # Buscar archivos batch_info en cada proyecto
+            # Si hay Cosmos configurado, filtrar proyectos a los que tengan isBatchPending=true
+            pending_set: Optional[Set[str]] = None
+            try:
+                container_folder = os.environ.get("COSMOS_CONTAINER_FOLDER")
+                if container_folder:
+                    cdb = CosmosDBClient()
+                    timer_proc = PoolingEventTimerProcessor(cdb)
+                    pending_set = timer_proc.process_batch(container_folder)
+                    if not pending_set:
+                        self.logger.info("No pending folders in Cosmos; proceeding with no filtering")
+                else:
+                    self.logger.info("COSMOS_CONTAINER_FOLDER not set; proceeding without Cosmos filtering")
+            except Exception as e:
+                self.logger.warning(f"Cosmos filtering not available: {str(e)}")
+                pending_set = None
+
+            # Buscar archivos batch_info en cada proyecto (aplicando filtro si existe)
             batch_info_files = []
             for project in projects:
+                if pending_set is not None and project not in pending_set:
+                    # Saltar proyectos que no están marcados como pendientes
+                    continue
                 project_prefix = f"basedocuments/{project}/processed/openai_logs/"
                 project_blobs = self.blob_client.list_blobs_with_prefix(
                     prefix=project_prefix
@@ -633,6 +654,32 @@ class BatchResultsProcessor:
                 content=marker_content
             )
             self.logger.info(f"Marcador de batch guardado: basedocuments/{project_name}/results/{result_name}")
+
+            # Best-effort: actualizar Cosmos para apagar el pendiente
+            try:
+                sharepoint_folder = os.environ.get("SHAREPOINT_FOLDER")
+                container_folder = os.environ.get("COSMOS_CONTAINER_FOLDER")
+                if sharepoint_folder and container_folder:
+                    doc_id = f"{sharepoint_folder}|{project_name}"
+                    cdb = CosmosDBClient()
+                    doc = cdb.read_item(doc_id, doc_id, container_folder)
+                    if doc is not None:
+                        doc["isBatchPending"] = False
+                        doc["lastProcessedBatchId"] = batch_id
+                        doc["processedAt"] = timestamp
+                        stats = results.get('total_processed'), results.get('successful_responses'), results.get('failed_responses')
+                        doc["lastStats"] = {
+                            "total_processed": results.get('total_processed', 0),
+                            "successful_responses": results.get('successful_responses', 0),
+                            "failed_responses": results.get('failed_responses', 0),
+                            "success_rate": results.get('success_rate', 0),
+                        }
+                        cdb.upsert_item(doc, container_folder)
+                        self.logger.info(f"CosmosDB folder marked processed: {doc_id}")
+                else:
+                    self.logger.info("Cosmos env not set; skipping folder processed mark")
+            except Exception as e:
+                self.logger.warning(f"Could not update Cosmos folder processed mark: {str(e)}")
         except Exception as e:
             self.logger.log_error(
                 message=f"Error guardando marcador de batch {batch_id}: {str(e)}",
