@@ -610,6 +610,8 @@ class OpenAIBatchProcessor:
         
         batch_requests = []
         documents_info = []
+        # Manifest detallado para auditoría: prompt + contexto por request
+        requests_manifest: List[Dict[str, Any]] = []
         
         try:
             blob_client = BlobStorageClient()
@@ -618,13 +620,17 @@ class OpenAIBatchProcessor:
             di_documents = blob_client.list_processed_documents(project_name)
             for doc_name in di_documents:
                 if doc_name.endswith('.json'):
-                    self._add_document_to_batch_from_blob(doc_name, project_name, batch_requests, documents_info, blob_client, 'DI')
+                    self._add_document_to_batch_from_blob(
+                        doc_name, project_name, batch_requests, documents_info, blob_client, 'DI', requests_manifest
+                    )
             
             # Procesar chunks desde blob storage
             chunk_documents = blob_client.list_chunks(project_name)
             for chunk_name in chunk_documents:
                 if chunk_name.endswith('.json'):
-                    self._add_document_to_batch_from_blob(chunk_name, project_name, batch_requests, documents_info, blob_client, 'chunks')
+                    self._add_document_to_batch_from_blob(
+                        chunk_name, project_name, batch_requests, documents_info, blob_client, 'chunks', requests_manifest
+                    )
             
             if not batch_requests:
                 raise ValueError(f"No se encontraron documentos para procesar en proyecto {project_name}")
@@ -669,6 +675,18 @@ class OpenAIBatchProcessor:
             batch_info_content = json.dumps(batch_info, indent=2, ensure_ascii=False)
             batch_info_path = f"basedocuments/{project_name}/processed/openai_logs/batch_info_{project_name}_{batch.id}.json"
             blob_client.upload_blob(batch_info_path, batch_info_content)
+
+            # Guardar manifest con prompt + contexto por request (para auditoría)
+            try:
+                manifest_path = f"basedocuments/{project_name}/processed/openai_logs/batch_payload_{project_name}_{batch.id}.jsonl"
+                lines = []
+                for item in requests_manifest:
+                    lines.append(json.dumps(item, ensure_ascii=False))
+                manifest_bytes = ("\n".join(lines)).encode('utf-8')
+                blob_client.upload_blob(manifest_path, manifest_bytes, content_type='application/x-ndjson')
+                self.logger.info(f"🧾 Manifest de prompts/contexto guardado en blob: {manifest_path}")
+            except Exception as e:
+                self.logger.warning(f"No se pudo guardar el manifest de requests: {str(e)}")
             
             self.logger.info(f"✅ Batch job creado exitosamente:")
             self.logger.info(f"   📋 Batch ID: {batch.id}")
@@ -788,7 +806,7 @@ class OpenAIBatchProcessor:
             self.logger.error(f"Error procesando chunks: {str(e)}")
             raise
 
-    def _add_document_to_batch_from_blob(self, doc_name: str, project_name: str, batch_requests: List[Dict], documents_info: List[Dict], blob_client: BlobStorageClient, doc_type: str):
+    def _add_document_to_batch_from_blob(self, doc_name: str, project_name: str, batch_requests: List[Dict], documents_info: List[Dict], blob_client: BlobStorageClient, doc_type: str, requests_manifest: Optional[List[Dict[str, Any]]] = None):
         """
         Añade un documento desde blob storage al batch job.
         
@@ -838,6 +856,21 @@ class OpenAIBatchProcessor:
                     # Mapear número de prompt a tipo
                     prompt_types = {1: "auditoria", 2: "desembolsos", 3: "productos"}
                     prompts_applied.append(prompt_types[prompt_num])
+                    
+                    # Agregar entrada al manifest (prompt + contexto)
+                    if requests_manifest is not None:
+                        requests_manifest.append({
+                            "custom_id": custom_id,
+                            "prompt_number": prompt_num,
+                            "prompt_type": prompt_types[prompt_num],
+                            "prompt_text": prompt,
+                            "context": content,
+                            "document_name": doc_name,
+                            "document_type": doc_type,
+                            "subfolder": subfolder,
+                            "prefix": prefix,
+                            "created_at": datetime.now().isoformat()
+                        })
                     
                     self.logger.info(f"📄 Añadido al batch: {custom_id} (Prefijo: {prefix})")
             
