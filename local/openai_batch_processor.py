@@ -127,10 +127,10 @@ class OpenAIBatchProcessor:
         # Filtros por prefijo según prompt
         if prompt_number == 1:  # Auditoría
             allowed_prefixes = ['IXP']
-        elif prompt_number == 2:  # Desembolsos
+        elif prompt_number == 2:  # Productos
             allowed_prefixes = ['ROP', 'INI', 'DEC', 'IFS']
-        elif prompt_number == 3:  # Productos
-            allowed_prefixes = ['ROP', 'INI', 'DEC']
+        elif prompt_number == 3:  # Desembolsos
+            allowed_prefixes = ['ROP', 'INI', 'DEC', 'IFS']
         else:
             return False
         

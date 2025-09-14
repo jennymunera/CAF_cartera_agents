@@ -8,7 +8,7 @@ alias deactivate 'test $?_OLD_VIRTUAL_PATH != 0 && setenv PATH "$_OLD_VIRTUAL_PA
 # Unset irrelevant variables.
 deactivate nondestructive
 
-setenv VIRTUAL_ENV '/Users/jcgonzalezv/Library/Mobile Documents/com~apple~CloudDocs/Desktop/Agentes_jen_rebuild/azure_functions/.venv311'
+setenv VIRTUAL_ENV /Users/jenny/Desktop/CAF_cartera_agents/azure_functions/.venv311
 
 set _OLD_VIRTUAL_PATH="$PATH"
 setenv PATH "$VIRTUAL_ENV/"bin":$PATH"

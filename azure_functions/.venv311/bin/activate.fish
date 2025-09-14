@@ -33,7 +33,7 @@ end
 # Unset irrelevant variables.
 deactivate nondestructive
 
-set -gx VIRTUAL_ENV '/Users/jcgonzalezv/Library/Mobile Documents/com~apple~CloudDocs/Desktop/Agentes_jen_rebuild/azure_functions/.venv311'
+set -gx VIRTUAL_ENV /Users/jenny/Desktop/CAF_cartera_agents/azure_functions/.venv311
 
 set -gx _OLD_VIRTUAL_PATH $PATH
 set -gx PATH "$VIRTUAL_ENV/"bin $PATH

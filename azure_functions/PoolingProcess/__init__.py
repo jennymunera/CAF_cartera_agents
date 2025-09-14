@@ -801,7 +801,7 @@ class BatchResultsProcessor:
                 m = re.search(r"_prompt(\d+)", custom_id)
                 if m:
                     n = m.group(1)
-                    mapping = {'1': 'auditoria', '2': 'desembolsos', '3': 'productos'}
+                    mapping = {'1': 'auditoria', '2': 'productos', '3': 'desembolsos'}
                     prompt_type = mapping.get(n)
                     # document_name = entre '{project}_' y '_prompt{n}' (respetando posibles '_chunk_...')
                     try:
@@ -1026,7 +1026,7 @@ class BatchResultsProcessor:
             if isinstance(content, dict) and '_raw_text' in content:
                 raw = content.get('_raw_text')
                 # Intentar parsear si es string
-                if isinstance(raw, str):
+                if isinstance(raw, str) and raw.strip():
                     # Primero: extraer JSON de posibles fences o texto
                     extracted = self._extract_json_content(raw)
                     if isinstance(extracted, (dict, list)):
@@ -1036,6 +1036,12 @@ class BatchResultsProcessor:
                     if many:
                         # Si hay un único objeto, devolverlo; si varios, devolver lista
                         return many if len(many) > 1 else many[0]
+                    # Tercero: si raw parece ser JSON directo, intentar parsearlo
+                    if raw.strip().startswith(('{', '[')):
+                        try:
+                            return json.loads(raw)
+                        except json.JSONDecodeError:
+                            pass
                 # Si ya viene como dict/list en _raw_text
                 if isinstance(raw, (dict, list)):
                     return raw
@@ -1043,10 +1049,13 @@ class BatchResultsProcessor:
                 cleaned = dict(content)
                 cleaned.pop('_raw_text', None)
                 cleaned.pop('_parse_error', None)
-                return cleaned if cleaned else raw
+                # Si cleaned tiene contenido útil, devolverlo; sino devolver raw
+                if cleaned and any(v is not None for v in cleaned.values()):
+                    return cleaned
+                return raw if raw is not None else None
 
             # Caso string JSON directo
-            if isinstance(content, str):
+            if isinstance(content, str) and content.strip():
                 extracted = self._extract_json_content(content)
                 if isinstance(extracted, (dict, list)):
                     return extracted
@@ -1054,12 +1063,24 @@ class BatchResultsProcessor:
                 many = self._parse_multiple_json_objects(content)
                 if many:
                     return many if len(many) > 1 else many[0]
+                # Intentar parseo directo si parece JSON
+                if content.strip().startswith(('{', '[')):
+                    try:
+                        return json.loads(content)
+                    except json.JSONDecodeError:
+                        pass
                 return content
 
-            # dict/list ya parseado
-            return content
-        except Exception:
+            # dict/list ya parseado - verificar que no esté vacío
+            if isinstance(content, (dict, list)):
+                return content if content else None
+            
+            # Otros tipos - devolver si no es None
+            return content if content is not None else None
+            
+        except Exception as e:
             # Si algo falla, devolver el contenido original para no perder datos
+            self.logger.warning(f"Error en _materialize_content_for_file: {str(e)}")
             return content
     
     def _extract_json_content(self, content: str) -> Any:
@@ -1209,11 +1230,28 @@ class BatchResultsProcessor:
                                 continue
                             materialized = self._materialize_content_for_file(prompt_type, content)
                             try:
-                                lines.append(json.dumps(materialized, ensure_ascii=False))
-                            except Exception:
-                                # Como último recurso, guardar string del contenido
-                                if isinstance(materialized, str):
-                                    lines.append(materialized)
+                                # Si materialized es None o vacío, saltar
+                                if materialized is None:
+                                    continue
+                                # Si es un dict o list válido, agregarlo
+                                if isinstance(materialized, (dict, list)):
+                                    lines.append(json.dumps(materialized, ensure_ascii=False))
+                                # Si es string, intentar parsearlo como JSON
+                                elif isinstance(materialized, str) and materialized.strip():
+                                    try:
+                                        parsed = json.loads(materialized)
+                                        lines.append(json.dumps(parsed, ensure_ascii=False))
+                                    except json.JSONDecodeError:
+                                        # Si no es JSON válido, guardarlo como string
+                                        lines.append(json.dumps({"raw_content": materialized}, ensure_ascii=False))
+                            except Exception as e:
+                                self.logger.warning(f"Error procesando contenido para {prompt_type}: {str(e)}")
+                                # Como último recurso, intentar guardar el contenido original
+                                if content is not None:
+                                    try:
+                                        lines.append(json.dumps({"fallback_content": str(content)}, ensure_ascii=False))
+                                    except Exception:
+                                        pass
                     count = len(lines)
 
                 # Convertir líneas JSONL a arreglo JSON válido de objetos

@@ -503,8 +503,8 @@ class OpenAIBatchProcessor:
             # Crear diccionario de prompts para acceso por número
             self.prompts = {
                 'prompt_1': PROMPT_AUDITORIA,
-                'prompt_2': PROMPT_DESEMBOLSOS, 
-                'prompt_3': PROMPT_PRODUCTOS
+                'prompt_2': PROMPT_PRODUCTOS, 
+                'prompt_3': PROMPT_DESEMBOLSOS
             }
             
             self.logger.info("✅ Prompts cargados exitosamente desde constantes")
@@ -558,7 +558,7 @@ class OpenAIBatchProcessor:
         elif prompt_number == 2:  # Productos
             allowed_prefixes = ['ROP', 'INI', 'DEC', 'IFS']
         elif prompt_number == 3:  # Desembolsos
-            allowed_prefixes = ['ROP', 'INI', 'DEC']
+            allowed_prefixes = ['ROP', 'INI', 'DEC', 'IFS']
         else:
             return False
         
@@ -897,7 +897,7 @@ class OpenAIBatchProcessor:
                     batch_requests.append(batch_request)
                     
                     # Mapear número de prompt a tipo
-                    prompt_types = {1: "auditoria", 2: "desembolsos", 3: "productos"}
+                    prompt_types = {1: "auditoria", 2: "productos", 3: "desembolsos"}
                     prompts_applied.append(prompt_types[prompt_num])
                     
                     # Agregar entrada al manifest (prompt + contexto)
@@ -972,8 +972,8 @@ class OpenAIBatchProcessor:
             # Verificar y agregar prompts aplicables
             prompts = [
                 (1, "auditoria", self.prompt_auditoria),
-                (2, "desembolsos", self.prompt_desembolsos),
-                (3, "productos", self.prompt_productos)
+                (2, "productos", self.prompt_productos),
+                (3, "desembolsos", self.prompt_desembolsos)
             ]
             
             for prompt_num, prompt_type, prompt_text in prompts:
