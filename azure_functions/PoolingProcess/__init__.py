@@ -1069,7 +1069,11 @@ class BatchResultsProcessor:
                         return json.loads(content)
                     except json.JSONDecodeError:
                         pass
-                return content
+                # Si no se puede parsear como JSON, crear estructura esperada según prompt
+                self.logger.debug(f"Contenido string no parseable como JSON, creando estructura por defecto: {content[:100]}...")
+                # Intentar determinar el tipo de prompt desde el contexto
+                prompt_type = getattr(self, '_current_prompt_type', 'auditoria')
+                return self._create_default_structure_for_unparseable_content(content, prompt_type)
 
             # dict/list ya parseado - verificar que no esté vacío
             if isinstance(content, (dict, list)):
@@ -1083,6 +1087,143 @@ class BatchResultsProcessor:
             self.logger.warning(f"Error en _materialize_content_for_file: {str(e)}")
             return content
     
+    def _diagnose_json_content(self, content: str, error_msg: str) -> str:
+        """
+        Diagnostica problemas comunes en contenido JSON para mejorar debugging
+        """
+        diagnostics = []
+        
+        # Verificar longitud
+        if len(content) > 10000:
+            diagnostics.append(f"Contenido muy largo ({len(content)} chars)")
+        
+        # Verificar caracteres problemáticos
+        if '\\x' in content:
+            diagnostics.append("Contiene caracteres de escape")
+        if content.count('{') != content.count('}'):
+            diagnostics.append(f"Llaves desbalanceadas: {content.count('{')} vs {content.count('}')}")
+        if content.count('[') != content.count(']'):
+            diagnostics.append(f"Corchetes desbalanceados: {content.count('[')} vs {content.count(']')}")
+        
+        # Verificar si parece truncado
+        if content.endswith(',') or content.endswith('"'):
+            diagnostics.append("Posiblemente truncado")
+        
+        # Verificar patrones comunes de error
+        if 'null,' in content:
+            diagnostics.append("Contiene null seguido de coma")
+        if '""' in content:
+            diagnostics.append("Contiene strings vacíos")
+        
+        return f"Diagnóstico: {'; '.join(diagnostics) if diagnostics else 'Sin patrones obvios'}"
+    
+    def _repair_truncated_json(self, json_content: str) -> str:
+        """
+        Intenta reparar JSON truncado cerrando strings no terminados y estructuras abiertas
+        """
+        content = json_content.rstrip()
+        
+        # Cerrar strings no terminados
+        if content.count('"') % 2 != 0:
+            content += '"'
+        
+        # Contar llaves y corchetes abiertos
+        open_braces = content.count('{') - content.count('}')
+        open_brackets = content.count('[') - content.count(']')
+        
+        # Remover comas finales antes de cerrar
+        if content.endswith(','):
+            content = content[:-1]
+        
+        # Cerrar estructuras abiertas
+        if open_braces > 0:
+            content += '}' * open_braces
+        if open_brackets > 0:
+            content += ']' * open_brackets
+            
+        return content
+    
+    def _create_default_structure_for_unparseable_content(self, content: str, prompt_type: str = 'auditoria') -> Dict[str, Any]:
+        """
+        Crea una estructura por defecto con todos los campos esperados cuando el contenido no se puede parsear.
+        Esto corrige errores de parseo de OpenAI manteniendo la estructura consistente.
+        """
+        # Estructura base común para auditoría
+        auditoria_structure = {
+            "codigo_CFA": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "codigo_CFX": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "estado_informe_SSC": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "estado_informe_SSC_norm": "null",
+            "informe_auditoria_externa_se_entrego_SSC": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "informe_auditoria_externa_se_entrego_SSC_norm": "null",
+            "concepto_control_interno": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "concepto_control_interno_norm": "no se menciona",
+            "concepto_licitacion": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "concepto_licitacion_norm": "no se menciona",
+            "concepto_uso_recursos": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "concepto_uso_recursos_norm": "no se menciona",
+            "concepto_unidad_ejecutora": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "concepto_unidad_ejecutora_norm": "no se menciona",
+            "fecha_vencimiento_SSC": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "fecha_cambio_estado_informe_SSC": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "fecha_extraccion": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "fecha_ultima_revision": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "status_auditoria_SSC": "Pendiente",
+            "nombre_archivo": "unknown",
+            "texto_justificacion": {"quote": None},
+            "_parse_error": "Contenido no parseable - estructura por defecto generada",
+            "_original_content_preview": content[:200] if len(content) > 200 else content
+        }
+        
+        # Estructura para productos
+        productos_structure = {
+            "codigo_CFA": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "codigo_CFX": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "descripcion_producto": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "meta_producto": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "meta_unidad": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "meta_num": None,
+            "meta_unidad_norm": None,
+            "fuente_indicador": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "fecha_cumplimiento_meta": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "tipo_dato": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "tipo_dato_norm": None,
+            "caracteristica": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "caracteristica_norm": None,
+            "check_producto": "No",
+            "fecha_extraccion": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "fecha_ultima_revision": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "nombre_archivo": "unknown",
+            "_parse_error": "Contenido no parseable - estructura por defecto generada",
+            "_original_content_preview": content[:200] if len(content) > 200 else content
+        }
+        
+        # Estructura para desembolsos
+        desembolsos_structure = {
+            "codigo_CFA": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "tipo_registro": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "tipo_registro_norm": None,
+            "fecha_desembolso": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "monto_original": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "moneda": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "monto_usd": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "fuente_etiqueta": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "fuente_norm": None,
+            "fecha_extraccion": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "fecha_ultima_revision": {"value": None, "confidence": "NO_EXTRAIDO", "evidence": None},
+            "nombre_archivo": "unknown",
+            "_parse_error": "Contenido no parseable - estructura por defecto generada",
+            "_original_content_preview": content[:200] if len(content) > 200 else content
+        }
+        
+        # Devolver la estructura correcta según el tipo de prompt
+        if prompt_type == 'productos':
+            return productos_structure
+        elif prompt_type == 'desembolsos':
+            return desembolsos_structure
+        else:  # auditoria por defecto
+            return auditoria_structure
+     
     def _extract_json_content(self, content: str) -> Any:
         """
         Extrae y parsea contenido JSON de diferentes formatos:
@@ -1120,6 +1261,9 @@ class BatchResultsProcessor:
                         # Intentar cerrar las estructuras abiertas
                         if open_braces > 0 or open_brackets > 0:
                             json_content = json_content.rstrip()
+                            # Cerrar strings no terminados
+                            if json_content.count('"') % 2 != 0:
+                                json_content += '"'
                             # Remover comas finales
                             if json_content.endswith(','):
                                 json_content = json_content[:-1]
@@ -1129,7 +1273,10 @@ class BatchResultsProcessor:
             try:
                 return json.loads(json_content)
             except json.JSONDecodeError as e:
-                self.logger.warning(f"No se pudo parsear JSON del bloque de código: {str(e)[:100]}")
+                # Logging mejorado para debugging
+                content_preview = json_content[:200] + "..." if len(json_content) > 200 else json_content
+                diagnosis = self._diagnose_json_content(json_content, str(e))
+                self.logger.warning(f"No se pudo parsear JSON del bloque de código - Error: {str(e)} - {diagnosis} - Contenido: {content_preview}")
                 return content
         
         # Caso 2: Contenido que empieza directamente con { o [
@@ -1137,8 +1284,18 @@ class BatchResultsProcessor:
         if content_stripped.startswith(('{', '[')):
             try:
                 return json.loads(content_stripped)
-            except json.JSONDecodeError:
-                self.logger.warning(f"No se pudo parsear JSON directo")
+            except json.JSONDecodeError as e:
+                # Intentar reparar JSON truncado
+                try:
+                    repaired_json = self._repair_truncated_json(content_stripped)
+                    return json.loads(repaired_json)
+                except Exception:
+                    pass
+                
+                # Logging mejorado para debugging
+                content_preview = content_stripped[:200] + "..." if len(content_stripped) > 200 else content_stripped
+                diagnosis = self._diagnose_json_content(content_stripped, str(e))
+                self.logger.warning(f"No se pudo parsear JSON directo - Error: {str(e)} - {diagnosis} - Contenido: {content_preview}")
                 return content
         
         # Caso 3: Devolver contenido original si no es JSON
@@ -1193,6 +1350,9 @@ class BatchResultsProcessor:
                 'productos': 'Productos'
             }
             for prompt_type, folder in folder_map.items():
+                # Establecer el contexto del prompt actual para _materialize_content_for_file
+                self._current_prompt_type = prompt_type
+                
                 prefix = f"basedocuments/{project_name}/results/{folder}/"
                 try:
                     entries = self.blob_client.list_blobs_with_prefix(prefix=prefix)
@@ -1229,29 +1389,67 @@ class BatchResultsProcessor:
                             if content is None:
                                 continue
                             materialized = self._materialize_content_for_file(prompt_type, content)
+                            # Filtrar solo contenido None o string vacío - preservar dicts estructurados
+                            if materialized is None or materialized == "":
+                                continue
                             try:
-                                # Si materialized es None o vacío, saltar
-                                if materialized is None:
-                                    continue
                                 # Si es un dict o list válido, agregarlo
                                 if isinstance(materialized, (dict, list)):
                                     lines.append(json.dumps(materialized, ensure_ascii=False))
                                 # Si es string, intentar parsearlo como JSON
                                 elif isinstance(materialized, str) and materialized.strip():
+                                    # Intentar múltiples estrategias de parseo
+                                    parsed_successfully = False
+                                    
+                                    # Estrategia 1: JSON directo
                                     try:
                                         parsed = json.loads(materialized)
                                         lines.append(json.dumps(parsed, ensure_ascii=False))
+                                        parsed_successfully = True
                                     except json.JSONDecodeError:
-                                        # Si no es JSON válido, guardarlo como string
-                                        lines.append(json.dumps({"raw_content": materialized}, ensure_ascii=False))
+                                        pass
+                                    
+                                    # Estrategia 2: Extraer JSON con _extract_json_content
+                                    if not parsed_successfully:
+                                        try:
+                                            extracted = self._extract_json_content(materialized)
+                                            if isinstance(extracted, (dict, list)):
+                                                lines.append(json.dumps(extracted, ensure_ascii=False))
+                                                parsed_successfully = True
+                                        except Exception:
+                                            pass
+                                    
+                                    # Estrategia 3: Parsear múltiples objetos JSON
+                                    if not parsed_successfully:
+                                        try:
+                                            many_objs = self._parse_multiple_json_objects(materialized)
+                                            if many_objs:
+                                                for obj in many_objs:
+                                                    lines.append(json.dumps(obj, ensure_ascii=False))
+                                                parsed_successfully = True
+                                        except Exception:
+                                            pass
+                                    
+                                    # Si todas las estrategias fallan, omitir este contenido
+                                    if not parsed_successfully:
+                                        # Logging mejorado para debugging
+                                        content_preview = materialized[:300] + "..." if len(str(materialized)) > 300 else str(materialized)
+                                        self.logger.warning(f"No se pudo parsear contenido como JSON para {prompt_type}, omitiendo - Contenido: {content_preview}")
+                                        continue
                             except Exception as e:
                                 self.logger.warning(f"Error procesando contenido para {prompt_type}: {str(e)}")
-                                # Como último recurso, intentar guardar el contenido original
-                                if content is not None:
-                                    try:
-                                        lines.append(json.dumps({"fallback_content": str(content)}, ensure_ascii=False))
-                                    except Exception:
-                                        pass
+                                # Usar la estructura por defecto para errores de procesamiento
+                                try:
+                                    default_structure = self._create_default_structure_for_unparseable_content(
+                                        str(content) if content is not None else "Error de procesamiento", 
+                                        prompt_type
+                                    )
+                                    # Agregar información del error
+                                    default_structure["_processing_error"] = str(e)
+                                    lines.append(json.dumps(default_structure, ensure_ascii=False))
+                                except Exception:
+                                    # Si incluso esto falla, entonces sí omitir
+                                    continue
                     count = len(lines)
 
                 # Convertir líneas JSONL a arreglo JSON válido de objetos
@@ -1269,13 +1467,21 @@ class BatchResultsProcessor:
                         # Omitir entradas inválidas
                         pass
 
-                self.blob_client.save_result(
-                    project_name=project_name,
-                    result_name=f"{prompt_type}.json",
-                    content=array_items
-                )
-                prompt_files_saved.append(f"{prompt_type}.json ({count} elementos)")
-                self.logger.info(f"Archivo {prompt_type}.json guardado: {count} elementos")
+                # Solo guardar si hay contenido válido
+                if array_items:
+                    self.blob_client.save_result(
+                        project_name=project_name,
+                        result_name=f"{prompt_type}.json",
+                        content=array_items
+                    )
+                    prompt_files_saved.append(f"{prompt_type}.json ({len(array_items)} elementos)")
+                    self.logger.info(f"Archivo {prompt_type}.json guardado: {len(array_items)} elementos")
+                else:
+                    self.logger.warning(f"No se generó contenido válido para {prompt_type}.json - archivo omitido")
+                    prompt_files_saved.append(f"{prompt_type}.json (omitido - sin contenido válido)")
+                
+                # Limpiar contexto del prompt
+                self._current_prompt_type = None
             
             # Guardar archivos individuales por documento y por tipo (estructura LLM_output)
             # Estructura esperada:
