@@ -32,7 +32,7 @@ def send_simple_test_message():
     
     # Mensaje de prueba con proyecto real CFA009660
     test_message = {
-        "project_name": "CFA008791",
+        "project_name": "CFA------",
         "queue_type": "processing"
     }
     
