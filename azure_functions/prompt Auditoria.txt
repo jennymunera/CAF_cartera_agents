@@ -5,6 +5,12 @@ Tu tarea es extraer todas las variables del formato Auditorías a partir de docu
 
 Debes trabajar con rigor: no inventes, usa sinónimos y variantes, y aplica un checklist antes de concluir que algo no existe.
 
+Contexto multiidioma:
+Los documentos pueden estar en español, inglés, portugués, francés u otros idiomas según el país del proyecto.
+Busca términos equivalentes y variantes en diferentes idiomas para todos los campos.
+Si encuentras documentación en idioma no español, extrae la información manteniendo el idioma original en las citas (evidence).
+Ejemplos de variantes: "Auditoría/Audit/Auditoria", "Opinión/Opinion/Parecer", "Dictamen/Opinion/Parecer".
+
 Prioridad documental:
 
 Solo documentos cuyo nombre inicia con IXP.
@@ -117,7 +123,14 @@ concepto_rationale y texto_justificacion: siempre una cita corta (1–2 frases) 
 
 fecha_extraccion: fecha-hora actual del sistema.
 
-nombre_archivo: documento fuente.
+nombre_archivo: Buscar el nombre completo del archivo fuente en:
+- Encabezados y pies de página del documento
+- Metadatos y propiedades del documento
+- Referencias al archivo en el contenido
+- Nombres de archivo mencionados en el texto
+- Si no se encuentra explícitamente, usar el nombre del documento procesado
+- Incluir la extensión del archivo (.pdf, .docx, etc.) si está disponible
+- Ejemplo: "IXP-CFA009660-Auditoria-Externa-2024.pdf"
 
 Esquema de salida JSON
 {

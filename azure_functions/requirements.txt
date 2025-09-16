@@ -46,3 +46,7 @@ pathlib2>=2.3.7; python_version < '3.4'
 
 # UUID generation
 uuid>=1.30; python_version < '3.7'
+
+pandas>=2.3.2
+requests>=2.32.5
+

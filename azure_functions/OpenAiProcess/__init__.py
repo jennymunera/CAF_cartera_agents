@@ -16,6 +16,9 @@ from shared_code.processors.chunking_processor import ChunkingProcessor
 from shared_code.processors.openai_batch_processor import OpenAIBatchProcessor
 from shared_code.utils.app_insights_logger import get_logger, generate_operation_id
 from shared_code.utils.blob_storage_client import BlobStorageClient
+from shared_code.utils.cosmo_db_client import CosmosDBClient
+from shared_code.utils.build_email_payload import build_email_payload
+from shared_code.utils.notifications_service import NotificationsService
 
 # Utilidad local para cargar local.settings.json en entorno local
 def _load_local_settings_env():
@@ -296,11 +299,61 @@ def process_complete_project(project_name: str, queue_type: str):
             logger.info(f"Total requests in batch: {batch_info.get('total_requests', 'unknown')}")
         else:
             logger.error("Failed to create batch job")
+            # Enviar notificación de error cuando falla la creación del batch
+            try:
+                NOTIFICATION_API_URL = os.environ.get("NOTIFICATIONS_API_URL_BASE")
+                SHAREPOINT_FOLDER = os.environ.get("SHAREPOINT_FOLDER")
+                
+                if NOTIFICATION_API_URL and SHAREPOINT_FOLDER:
+                    error_message = "Error creando batch job en OpenAI"
+                    email_payload = build_email_payload("ERROR_FINALLY_PROCESS", project_name, SHAREPOINT_FOLDER, error_message)
+                    email_notification_service = NotificationsService(NOTIFICATION_API_URL)
+                    email_notification_service.send(email_payload)
+                    
+                    logger.info(f"Notificación de error enviada para fallo en creación de batch del proyecto {project_name}")
+                else:
+                    logger.warning("Variables de entorno para notificaciones no configuradas")
+            except Exception as notification_error:
+                logger.error(f"Error enviando notificación para proyecto {project_name}: {str(notification_error)}")
+            
+            raise ValueError("Failed to create batch job")
         
         logger.info(f"Completed processing project: {project_name}")
         
     except Exception as e:
         logger.error(f"Error in process_complete_project: {str(e)}")
+        # Solo enviar notificación para errores que impiden TOTALMENTE el procesamiento
+        # Errores menores o recuperables no deben generar spam de correos al cliente
+        error_str = str(e).lower()
+        
+        # Determinar si es un error crítico que requiere notificación
+        is_critical_error = (
+            "failed to create batch job" in error_str or
+            "no se encontraron documentos" in error_str or
+            "azure_openai_api_key" in error_str or
+            "connection" in error_str or
+            "authentication" in error_str
+        )
+        
+        if is_critical_error:
+            try:
+                NOTIFICATION_API_URL = os.environ.get("NOTIFICATIONS_API_URL_BASE")
+                SHAREPOINT_FOLDER = os.environ.get("SHAREPOINT_FOLDER")
+                
+                if NOTIFICATION_API_URL and SHAREPOINT_FOLDER:
+                    error_message = f"Error crítico en OpenAiProcess que impide el procesamiento: {str(e)}"
+                    email_payload = build_email_payload("ERROR_FINALLY_PROCESS", project_name, SHAREPOINT_FOLDER, error_message)
+                    email_notification_service = NotificationsService(NOTIFICATION_API_URL)
+                    email_notification_service.send(email_payload)
+                    
+                    logger.info(f"Notificación de error crítico enviada para proyecto {project_name} - Procesamiento imposible")
+                else:
+                    logger.warning("Variables de entorno para notificaciones no configuradas")
+            except Exception as notification_error:
+                logger.error(f"Error enviando notificación crítica para proyecto {project_name}: {str(notification_error)}")
+        else:
+            logger.info(f"Error no crítico en proyecto {project_name} - No se envía notificación: {str(e)}")
+        
         raise
 
 def determine_document_type(document_name: str) -> str:

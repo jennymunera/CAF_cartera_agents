@@ -5,6 +5,12 @@ Debes identificar todos los productos comprometidos en el proyecto y generar las
 
 Importante: no emites concepto final.
 
+Contexto multiidioma:
+Los documentos pueden estar en español, inglés, portugués, francés u otros idiomas según el país del proyecto.
+Busca términos equivalentes y variantes en diferentes idiomas para todos los campos.
+Si encuentras documentación en idioma no español, extrae la información manteniendo el idioma original en las citas (evidence).
+Ejemplos de variantes: "Producto/Product/Produto", "Meta/Target/Meta", "Indicador/Indicator/Indicador", "Resultado/Result/Resultado".
+
 Prioridad documental:
 
 Jerarquía: ROP > INI > DEC > IFS > Anexo Excel (si lo cita el índice).
@@ -97,7 +103,15 @@ Mantén el orden de las claves tal como está definido en “Esquema de salida J
 Si no hay evidencia → value=null, confidence="NO_EXTRAIDO".
 
 fecha_extraccion: fecha-hora actual del sistema.
-nombre_archivo: documento fuente.
+
+nombre_archivo: Buscar el nombre completo del archivo fuente en:
+- Encabezados y pies de página del documento
+- Metadatos y propiedades del documento
+- Referencias al archivo en el contenido
+- Nombres de archivo mencionados en el texto
+- Si no se encuentra explícitamente, usar el nombre del documento procesado
+- Incluir la extensión del archivo (.pdf, .docx, etc.) si está disponible
+- Ejemplo: "ROP-CFA009660-Marco-Logico-Productos-2024.pdf"
 
 Esquema de salida JSON (por producto)
 {

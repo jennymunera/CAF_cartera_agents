@@ -34,6 +34,7 @@ echo "ℹ️  No se activa entorno virtual automáticamente. Actívalo manualmen
 [ -f "requirements.txt" ] || { echo "❌ requirements.txt no encontrado"; exit 1; }
 [ -d "OpenAiProcess" ] || { echo "❌ Falta carpeta OpenAiProcess/"; exit 1; }
 [ -d "PoolingProcess" ] || { echo "❌ Falta carpeta PoolingProcess/"; exit 1; }
+[ -d "FinalCsvProcess" ] || { echo "❌ Falta carpeta FinalCsvProcess/"; exit 1; }
 [ -d "shared_code" ] || { echo "⚠️  shared_code/ no existe. Si tienes módulos locales, esto causará import errors."; }
 
 # 2) Limpiar ZIP previo
@@ -45,7 +46,7 @@ echo "📦 Empaquetando..."
 ZIP_FILES=()
 
 # Requeridos (ya validados arriba)
-ZIP_FILES+=(host.json requirements.txt OpenAiProcess/ PoolingProcess/)
+ZIP_FILES+=(host.json requirements.txt OpenAiProcess/ PoolingProcess/ FinalCsvProcess/)
 
 # Opcional: shared_code/
 if [[ -d shared_code ]]; then ZIP_FILES+=(shared_code/); fi

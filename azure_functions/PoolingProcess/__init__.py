@@ -8,6 +8,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Set
 from openai import AzureOpenAI
+from shared_code.utils.final_output_process import invoke_download_final_output
 
 # Agregar el directorio padre al path para importar los módulos compartidos
 sys.path.append(str(Path(__file__).parent.parent))
@@ -17,6 +18,8 @@ from shared_code.utils.app_insights_logger import get_logger, generate_operation
 from shared_code.utils.blob_storage_client import BlobStorageClient
 from shared_code.utils.cosmo_db_client import CosmosDBClient
 from shared_code.utils.pooling_event_timer_processor import PoolingEventTimerProcessor
+from shared_code.utils.build_email_payload import build_email_payload
+from shared_code.utils.notifications_service import NotificationsService
 
 def _load_local_settings_env():
     """Carga azure_functions/local.settings.json a os.environ en entorno local.
@@ -130,6 +133,27 @@ def main(mytimer: func.TimerRequest) -> None:
                         )
                 elif batch_status in ['validating', 'in_progress', 'finalizing']:
                     logger.info(f"Batch {batch_id} aún en proceso: {batch_status}")
+                elif batch_status in ['failed', 'expired']:
+                    # Enviar notificación de error para batches fallidos o expirados
+                    project_name = batch_info.get('project_name')
+                    if project_name:
+                        try:
+                            NOTIFICATION_API_URL = os.environ.get("NOTIFICATIONS_API_URL_BASE")
+                            SHAREPOINT_FOLDER = os.environ.get("SHAREPOINT_FOLDER")
+                            
+                            if NOTIFICATION_API_URL and SHAREPOINT_FOLDER:
+                                error_message = f"Batch {batch_status}: {batch_id}"
+                                email_payload = build_email_payload("ERROR_FINALLY_PROCESS", project_name, SHAREPOINT_FOLDER, error_message)
+                                email_notification_service = NotificationsService(NOTIFICATION_API_URL)
+                                email_notification_service.send(email_payload)
+                                
+                                logger.info(f"Notificación de error enviada para batch {batch_id} en estado {batch_status}")
+                            else:
+                                logger.warning("Variables de entorno para notificaciones no configuradas")
+                        except Exception as notification_error:
+                            logger.error(f"Error enviando notificación para batch {batch_id}: {str(notification_error)}")
+                    
+                    logger.error(f"Batch {batch_id} en estado crítico: {batch_status}")
 
                 processed_count += 1
                 
@@ -247,7 +271,7 @@ class BatchResultsProcessor:
             # Buscar archivos batch_info en cada proyecto (aplicando filtro si existe)
             batch_info_files = []
             for project in projects:
-                if pending_set is not None and project not in pending_set:
+                if not pending_set or project not in pending_set:
                     # Saltar proyectos que no están marcados como pendientes
                     continue
                 project_prefix = f"basedocuments/{project}/processed/openai_logs/"
@@ -297,8 +321,8 @@ class BatchResultsProcessor:
                         )
                         continue
 
-                    # Solo incluir batches que están pendientes o completados sin marcador
-                    if current_status in ['validating', 'in_progress', 'finalizing', 'completed']:
+                    # Incluir batches pendientes, completados, failed y expired
+                    if current_status in ['validating', 'in_progress', 'finalizing', 'completed', 'failed', 'expired']:
                         batch_info['current_status'] = current_status
                         batch_info['blob_name'] = blob_info['name']
                         if project_name:
@@ -614,6 +638,36 @@ class BatchResultsProcessor:
                 error_code=error_type,
                 batch_id=batch_id
             )
+            
+            # Solo enviar notificación si es un fallo TOTAL que impide la entrega de CSVs al cliente
+            # Errores parciales o recuperables no deben generar spam de correos
+            project_name = batch_info.get('project_name')
+            if project_name:
+                # Determinar si es un fallo crítico que requiere notificación
+                is_critical_failure = True  # Por defecto, si llegamos aquí es porque no se pudo procesar nada
+                
+                # Si en el futuro implementamos procesamiento parcial, aquí evaluaríamos:
+                # is_critical_failure = (results is None or results.get('total_processed', 0) == 0)
+                
+                if is_critical_failure:
+                    try:
+                        NOTIFICATION_API_URL = os.environ.get("NOTIFICATIONS_API_URL_BASE")
+                        SHAREPOINT_FOLDER = os.environ.get("SHAREPOINT_FOLDER")
+                        
+                        if NOTIFICATION_API_URL and SHAREPOINT_FOLDER:
+                            error_message = f"Fallo crítico: No se pudieron procesar los resultados del batch {batch_id}. El cliente no recibirá CSVs."
+                            email_payload = build_email_payload("ERROR_FINALLY_PROCESS", project_name, SHAREPOINT_FOLDER, error_message)
+                            email_notification_service = NotificationsService(NOTIFICATION_API_URL)
+                            email_notification_service.send(email_payload)
+                            
+                            self.logger.info(f"Notificación de fallo crítico enviada para batch {batch_id} - Cliente no recibirá resultados")
+                        else:
+                            self.logger.warning("Variables de entorno para notificaciones no configuradas")
+                    except Exception as notification_error:
+                        self.logger.error(f"Error enviando notificación crítica para batch {batch_id}: {str(notification_error)}")
+                else:
+                    self.logger.info(f"Error parcial en batch {batch_id} - No se envía notificación (algunos resultados pueden haberse procesado)")
+            
             return None
 
     def _save_batch_processed_marker(self, batch_id: str, batch_info: Dict[str, Any], results: Dict[str, Any]) -> None:
@@ -688,6 +742,8 @@ class BatchResultsProcessor:
                 batch_id=batch_id
             )
     
+    #TODO invoke_download_final_output(folder_name)
+
     def _process_batch_results(self, content: str, batch_id: str) -> Dict[str, Any]:
         """
         Procesa el contenido JSONL de los resultados del batch y los organiza por prompt
@@ -1349,6 +1405,7 @@ class BatchResultsProcessor:
                 'desembolsos': 'Desembolsos',
                 'productos': 'Productos'
             }
+            is_invoke_final_output = False
             for prompt_type, folder in folder_map.items():
                 # Establecer el contexto del prompt actual para _materialize_content_for_file
                 self._current_prompt_type = prompt_type
@@ -1469,11 +1526,17 @@ class BatchResultsProcessor:
 
                 # Solo guardar si hay contenido válido
                 if array_items:
-                    self.blob_client.save_result(
+                    # Completar codigo_CFA con project_name si está null o vacío
+                    array_items = self._complete_codigo_cfa(array_items, project_name)
+                    
+                    blob_saved_result =self.blob_client.save_result(
                         project_name=project_name,
                         result_name=f"{prompt_type}.json",
                         content=array_items
                     )
+                    if blob_saved_result: 
+                        is_invoke_final_output = True
+
                     prompt_files_saved.append(f"{prompt_type}.json ({len(array_items)} elementos)")
                     self.logger.info(f"Archivo {prompt_type}.json guardado: {len(array_items)} elementos")
                 else:
@@ -1483,6 +1546,18 @@ class BatchResultsProcessor:
                 # Limpiar contexto del prompt
                 self._current_prompt_type = None
             
+            
+            # Invocar procesamiento CSV después de guardar los JSON finales
+            if is_invoke_final_output:
+                try:
+                    self.logger.info(f"🔄 Iniciando procesamiento CSV para proyecto {project_name}")
+                    response = invoke_download_final_output(project_name)
+                    self.logger.info(f"✅ Procesamiento CSV completado: {response}")
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Error en procesamiento CSV: {str(e)}")
+                    # No fallar el proceso principal si CSV falla
+
+                
             # Guardar archivos individuales por documento y por tipo (estructura LLM_output)
             # Estructura esperada:
             #  - results/Productos/<documento>_producto_XXX.json
@@ -1583,3 +1658,64 @@ class BatchResultsProcessor:
                 error_code="SAVE_RESULTS_ERROR",
                 batch_id=batch_id
             )
+    
+    def _complete_codigo_cfa(self, array_items: List[Dict[str, Any]], project_name: str) -> List[Dict[str, Any]]:
+        """
+        Completa el campo codigo_CFA con el project_name cuando esté null o vacío.
+        
+        Args:
+            array_items: Lista de elementos JSON a procesar
+            project_name: Nombre del proyecto para usar como fallback
+            
+        Returns:
+            Lista de elementos con codigo_CFA completado
+        """
+        try:
+            completed_count = 0
+            for item in array_items:
+                if isinstance(item, dict):
+                    # Verificar si codigo_CFA existe y obtener su valor actual
+                    codigo_cfa = item.get('codigo_CFA')
+                    current_value = None
+                    
+                    if isinstance(codigo_cfa, dict):
+                        current_value = codigo_cfa.get('value')
+                    elif codigo_cfa is not None:
+                        current_value = codigo_cfa
+                    
+                    # Verificar si está null, vacío o no coincide con el project_name
+                    should_replace = (
+                        current_value is None or 
+                        current_value == '' or 
+                        current_value == 'null' or 
+                        current_value != project_name
+                    )
+                    
+                    if should_replace:
+                        # Si codigo_CFA es un objeto con estructura {"value": ..., "confidence": ..., "evidence": ...}
+                        if isinstance(codigo_cfa, dict):
+                            original_value = item['codigo_CFA']['value']
+                            item['codigo_CFA']['value'] = project_name
+                            item['codigo_CFA']['confidence'] = 'EXTRAIDO_INFERIDO'
+                            if original_value in [None, '', 'null']:
+                                item['codigo_CFA']['evidence'] = f'Inferido desde nombre del proyecto: {project_name}'
+                            else:
+                                item['codigo_CFA']['evidence'] = f'Reemplazado "{original_value}" por nombre del proyecto: {project_name}'
+                        else:
+                            # Si codigo_CFA no existe o es valor directo
+                            item['codigo_CFA'] = {
+                                'value': project_name,
+                                'confidence': 'EXTRAIDO_INFERIDO',
+                                'evidence': f'Inferido desde nombre del proyecto: {project_name}'
+                            }
+                        
+                        completed_count += 1
+            
+            if completed_count > 0:
+                self.logger.info(f"Completados {completed_count} registros con codigo_CFA = {project_name}")
+            
+            return array_items
+            
+        except Exception as e:
+            self.logger.warning(f"Error completando codigo_CFA: {str(e)}")
+            return array_items  # Retornar sin modificar si hay error
