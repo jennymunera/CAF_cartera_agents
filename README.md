@@ -11,6 +11,11 @@ Este proyecto implementa un sistema de procesamiento de documentos utilizando Az
 - Logging con Azure Application Insights.
 - Soporte para múltiples tipos de documentos (e.g., CFA, CFB).
 - Polling periódico para procesar resultados de batches.
+- **🆕 Sistema de notificaciones inteligentes ERROR_FINALLY_PROCESS**.
+- **🆕 Generación automática de CSVs desde JSON finales**.
+- **🆕 Soporte multiidioma completo (ES/PT/EN)**.
+- **🆕 Extracción mejorada de nombres de archivo**.
+- **🆕 Manejo inteligente de errores críticos vs parciales**.
 
 ## Arquitectura
 El sistema se divide en componentes locales y en la nube:
@@ -22,6 +27,7 @@ El sistema se divide en componentes locales y en la nube:
 2. **Azure Functions** (directorio `azure_functions/`):
    - `OpenAiProcess`: Trigger por Service Bus para procesar documentos y enviar batches a OpenAI.
    - `PoolingProcess`: Timer trigger (cada 5 minutos) para verificar y procesar resultados de batches.
+   - **🆕 `FinalCsvProcess`**: HTTP trigger para generar CSVs finales desde JSON procesados.
 
 3. **Flujo General**:
    - Carga de documento desde Blob Storage.
@@ -40,6 +46,79 @@ El sistema se divide en componentes locales y en la nube:
 6. **Polling**: Verificación periódica de status de batches.
 7. **Procesamiento de Resultados**: Descarga y almacenamiento de outputs en JSON.
 8. **Outputs**: Archivos JSON con resúmenes, extracciones y metadatos.
+9. **🆕 Generación CSV**: Conversión automática de JSON finales a CSVs estructurados.
+10. **🆕 Notificaciones Inteligentes**: Envío de correos solo para errores críticos que impiden la entrega final.
+
+## 🆕 Nuevas Funcionalidades (Rama csv_integration)
+
+### Sistema de Notificaciones Inteligentes
+**Funcionalidad**: Notificaciones ERROR_FINALLY_PROCESS solo para errores críticos que impiden la entrega de resultados al cliente.
+
+**Características**:
+- ✅ **Filtrado Inteligente**: Solo notifica errores que impiden totalmente el procesamiento
+- ✅ **Evita Spam**: No envía correos por errores parciales o recuperables
+- ✅ **Estados Críticos**: Maneja batches failed/expired automáticamente
+- ✅ **Contexto Específico**: Mensajes detallados por tipo de error
+
+**Casos que SÍ generan notificación**:
+- Batch failed o expired (cliente no recibirá CSVs)
+- Error creando batch job (procesamiento imposible)
+- Fallos críticos de autenticación/conexión
+- Fallo total en procesamiento de resultados
+
+**Casos que NO generan notificación**:
+- Error parseando un documento específico
+- Error en una respuesta de OpenAI (se usa estructura por defecto)
+- Errores parciales recuperables
+
+### Generación Automática de CSVs
+**Funcionalidad**: Nueva Azure Function `FinalCsvProcess` que convierte JSON finales a CSVs estructurados.
+
+**Características**:
+- ✅ **HTTP Trigger**: Endpoint para generar CSVs bajo demanda
+- ✅ **Procesamiento Batch**: Convierte auditoria.json, productos.json, desembolsos.json
+- ✅ **Almacenamiento Automático**: CSVs guardados en outputdocuments/
+- ✅ **Notificación SUCCESS**: Envía correo de éxito al completar
+
+**Archivos CSV Generados**:
+- `auditoria_cartera.csv`: Datos de auditoría estructurados
+- `producto_cartera.csv`: Información de productos/componentes
+- `desembolso_cartera.csv`: Cronograma y ejecución de desembolsos
+
+### Soporte Multiidioma Completo
+**Funcionalidad**: Mejoras en prompts para mejor extracción en documentos multiidioma.
+
+**Características**:
+- ✅ **Idiomas Soportados**: Español, Inglés, Portugués, Francés
+- ✅ **Contexto Multiidioma**: Instrucciones específicas en todos los prompts
+- ✅ **Variantes por Idioma**: Ejemplos ES/PT/EN para términos clave
+- ✅ **Preservación Original**: Mantiene idioma original en evidencias
+
+**Ejemplos de Variantes**:
+- Auditoría: "Auditoría/Audit/Auditoria", "Opinión/Opinion/Parecer"
+- Desembolsos: "Desembolso/Disbursement/Desembolso", "Cronograma/Schedule/Cronograma"
+- Productos: "Producto/Product/Produto", "Meta/Target/Meta"
+
+### Extracción Mejorada de Nombres de Archivo
+**Funcionalidad**: Instrucciones detalladas para extraer nombres completos de archivo fuente.
+
+**Características**:
+- ✅ **Búsqueda Exhaustiva**: Encabezados, pies, metadatos, referencias
+- ✅ **Inferencia Inteligente**: Deduce desde contexto si no está explícito
+- ✅ **Extensiones Incluidas**: .pdf, .docx, etc.
+- ✅ **Menos "unknown"**: Reduce significativamente valores por defecto
+
+**Ubicaciones de Búsqueda**:
+- Encabezados y pies de página del documento
+- Metadatos y propiedades del documento
+- Referencias al archivo en el contenido
+- Nombres de archivo mencionados en el texto
+
+### Testing y Validación
+**Scripts de Prueba Incluidos**:
+- `list_projects_with_json.py`: Lista proyectos con JSON finales disponibles
+- `test_csv_generation.py`: Prueba generación CSV local y remota
+- Validación completa con proyecto CFA009238
 
 ## Función OpenAiProcess - Lógica Detallada
 
