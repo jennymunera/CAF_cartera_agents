@@ -17,6 +17,87 @@ Este proyecto implementa un sistema de procesamiento de documentos utilizando Az
 - **🆕 Extracción mejorada de nombres de archivo**.
 - **🆕 Manejo inteligente de errores críticos vs parciales**.
 
+## Estructura del Proyecto
+
+```
+CAF_cartera_agents/
+├── README.md
+├── .env.example
+├── .gitignore
+├── context.md
+├── .vscode/
+│   ├── extensions.json
+│   ├── launch.json
+│   ├── settings.json
+│   └── tasks.json
+├── azure_functions/                    # Azure Functions para despliegue en la nube
+│   ├── .funcignore
+│   ├── host.json
+│   ├── requirements.txt
+│   ├── redeploy_complete_functions.sh
+│   ├── local.settings.json
+│   ├── OpenAiProcess/                  # Function: Procesamiento de documentos
+│   │   ├── __init__.py
+│   │   └── function.json
+│   ├── PoolingProcess/                 # Function: Polling de resultados
+│   │   ├── __init__.py
+│   │   └── function.json
+│   ├── 🆕 FinalCsvProcess/             # Function: Generación de CSVs
+│   │   ├── __init__.py
+│   │   └── function.json
+│   ├── shared_code/                    # Código compartido entre functions
+│   │   ├── __init__.py
+│   │   ├── processors/
+│   │   │   ├── __init__.py
+│   │   │   ├── document_intelligence_processor.py
+│   │   │   ├── chunking_processor.py
+│   │   │   └── openai_batch_processor.py
+│   │   ├── schemas/
+│   │   │   ├── __init__.py
+│   │   │   └── validation_schemas.py
+│   │   └── utils/
+│   │       ├── __init__.py
+│   │       ├── app_insights_logger.py
+│   │       ├── blob_storage_client.py
+│   │       ├── cosmo_db_client.py
+│   │       ├── pooling_event_timer_processor.py
+│   │       ├── 🆕 build_email_payload.py
+│   │       ├── 🆕 notifications_service.py
+│   │       ├── 🆕 processor_csv.py
+│   │       └── 🆕 final_output_process.py
+│   ├── 🆕 prompt Auditoria.txt         # Prompts multiidioma actualizados
+│   ├── 🆕 prompt Desembolsos.txt
+│   ├── 🆕 prompt Productos.txt
+│   └── tests/                          # Scripts de testing
+│       ├── check_queue_size.py
+│       ├── get_queue_info.py
+│       ├── peek_queue_messages.py
+│       ├── send_test_message_simple.py
+│       ├── send_test_messages_for_projects.py
+│       ├── 🆕 list_projects_with_json.py
+│       └── 🆕 test_csv_generation.py
+└── local/                              # Componentes para desarrollo local
+    ├── chunking_processor.py
+    ├── document_intelligence_processor.py
+    ├── logging_config.json
+    ├── openai_batch_processor.py
+    ├── process_and_submit_batch.py
+    ├── results.py
+    ├── prompt Auditoria.txt
+    ├── prompt Desembolsos.txt
+    ├── prompt Productos.txt
+    ├── schemas/
+    │   ├── __init__.py
+    │   └── validation_schemas.py
+    ├── tests/
+    │   └── output/
+    └── utils/
+        ├── __init__.py
+        ├── app_insights_logger.py
+        ├── blob_storage_client.py
+        └── jsonl_handler.py
+```
+
 ## Arquitectura
 El sistema se divide en componentes locales y en la nube:
 
@@ -35,6 +116,8 @@ El sistema se divide en componentes locales y en la nube:
    - Chunking.
    - Envío de batch a OpenAI.
    - Polling y procesamiento de resultados.
+   - **🆕 Generación automática de CSVs**.
+   - **🆕 Notificaciones inteligentes de estado**.
    - Almacenamiento de outputs en Blob Storage.
 
 ## Flujo de Procesamiento
@@ -550,34 +633,118 @@ Notas de seguridad y operación para estos scripts:
 3. **Procesamiento Batch**: Útil para procesar grandes volúmenes de documentos de forma controlada.
 4. **Validación**: Verificar resultados antes de implementar cambios en producción.
 
-## Variables de entorno (compilado)
-- Azure Document Intelligence
-  - AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT, AZURE_DOCUMENT_INTELLIGENCE_KEY
-- Azure OpenAI
-  - AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_VERSION, AZURE_OPENAI_DEPLOYMENT_NAME
-- Azure Storage
-  - AZURE_STORAGE_CONNECTION_STRING, AZURE_STORAGE_CONTAINER_NAME (por defecto: caf-documents)
-- Logging / App Insights
-  - APPLICATIONINSIGHTS_CONNECTION_STRING, AZURE_APP_INSIGHTS_INSTRUMENTATION_KEY
-- Otros
-  - LOG_LEVEL, LOG_TO_FILE, LOG_FILE_PATH, LOG_TO_CONSOLE, LOG_FORMAT
+## Variables de Entorno
 
-Consulta .env.example para un listado con ejemplos de valores y formatos admitidos.
+### Azure Services
+```bash
+# Azure Document Intelligence
+AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=https://your-di.cognitiveservices.azure.com/
+AZURE_DOCUMENT_INTELLIGENCE_KEY=your-di-key
 
-## Operación del proyecto (end-to-end)
-- Ingesta
-  - Sube documentos a basedocuments/{proyecto}/raw del contenedor configurado.
-- Disparo del procesamiento
-  - En nube: envía mensaje a Service Bus (OpenAiProcess) o ejecuta la Function manualmente.
-  - Local: usa process_and_submit_batch.py con parámetros de proyecto/documento.
-- Extracción y chunking
-  - DI produce JSON estructurado por documento y metadatos del proyecto. Luego se generan chunks.
-- Creación de batch en OpenAI
-  - Se ensamblan requests con prompts específicos, aplicando filtros por prefijo para cada tipo.
-- Polling y resultados
-  - PoolingProcess consulta estados; cuando están listos, descarga/parcea el output JSONL y guarda resultados finales.
-- Persistencia
-  - Todos los artefactos se guardan en Blob Storage bajo la jerarquía del proyecto.
+# Azure OpenAI
+AZURE_OPENAI_API_KEY=your-openai-key
+AZURE_OPENAI_ENDPOINT=https://your-openai.openai.azure.com/
+AZURE_OPENAI_API_VERSION=2024-12-01-preview
+AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4.1_batch
+
+# Azure Storage
+AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=...
+AZURE_STORAGE_CONTAINER_NAME=caf-documents
+AZURE_STORAGE_OUTPUT_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=...
+CONTAINER_OUTPUT_NAME=output-container
+```
+
+### 🆕 Sistema de Notificaciones
+```bash
+# Notificaciones por correo
+NOTIFICATIONS_API_URL_BASE=https://your-notifications-api.com
+SHAREPOINT_FOLDER=https://your-sharepoint-folder
+```
+
+### Service Bus y CosmosDB
+```bash
+# Service Bus
+SERVICEBUS_CONNECTION_STRING=Endpoint=sb://your-servicebus.servicebus.windows.net/...
+ServiceBusQueueName=recoaudit-queue
+
+# CosmosDB (opcional)
+COSMOS_CONNECTION_STRING=AccountEndpoint=https://your-cosmos.documents.azure.com:443/...
+COSMOS_DATABASE_NAME=your-database
+COSMOS_CONTAINER_NAME=your-container
+COSMOS_CONTAINER_FOLDER=your-folder
+```
+
+### Logging y Monitoreo
+```bash
+# Application Insights
+APPLICATIONINSIGHTS_CONNECTION_STRING=InstrumentationKey=your-key;IngestionEndpoint=...
+AZURE_APP_INSIGHTS_INSTRUMENTATION_KEY=your-instrumentation-key
+
+# Configuración de Logs
+LOG_LEVEL=INFO
+LOG_TO_FILE=true
+LOG_FILE_PATH=logs/app.log
+LOG_TO_CONSOLE=true
+LOG_FORMAT=json
+```
+
+### Azure Functions
+```bash
+# Configuración de Functions
+AzureWebJobsStorage=DefaultEndpointsProtocol=https;AccountName=...
+FUNCTIONS_WORKER_RUNTIME=python
+FUNCTIONS_EXTENSION_VERSION=~4
+```
+
+**📝 Nota**: Consulta `.env.example` para un listado completo con ejemplos de valores y formatos admitidos.
+
+## Operación del Proyecto (End-to-End)
+
+### 1. Ingesta de Documentos
+- **Ubicación**: Sube documentos a `basedocuments/{proyecto}/raw/` del contenedor configurado
+- **Formatos soportados**: PDF, DOCX, TXT
+- **Organización**: Por proyecto (ej: CFA009238, CFA010061)
+
+### 2. Disparo del Procesamiento
+- **En la nube**: 
+  - Envía mensaje a Service Bus (trigger OpenAiProcess)
+  - Ejecuta la Function manualmente desde Azure Portal
+- **Local**: 
+  - Usa `process_and_submit_batch.py` con parámetros de proyecto/documento
+  - Scripts de testing en `azure_functions/tests/`
+
+### 3. Extracción y Chunking
+- **Document Intelligence**: Produce JSON estructurado por documento y metadatos del proyecto
+- **Chunking**: División en fragmentos optimizados para el modelo
+- **Almacenamiento**: `basedocuments/{proyecto}/processed/`
+
+### 4. Creación de Batch en OpenAI
+- **Prompts especializados**: Auditoria, Desembolsos, Productos
+- **🆕 Soporte multiidioma**: ES/PT/EN/FR
+- **Filtros por prefijo**: IXP (auditoría), ROP/INI/DEC (desembolsos/productos)
+- **Metadata**: Información del proyecto y configuración
+
+### 5. Polling y Resultados
+- **PoolingProcess**: Consulta estados cada 5 minutos
+- **🆕 Manejo inteligente de errores**: Failed/expired con notificaciones
+- **Descarga**: Procesa output JSONL y guarda resultados finales
+- **Ubicación**: `basedocuments/{proyecto}/results/`
+
+### 6. 🆕 Generación de CSVs
+- **Trigger**: HTTP request a FinalCsvProcess
+- **Input**: JSON finales (auditoria.json, productos.json, desembolsos.json)
+- **Output**: CSVs estructurados en `outputdocuments/`
+- **Notificación**: SUCCESS_FINALLY_PROCESS al completar
+
+### 7. 🆕 Sistema de Notificaciones
+- **ERROR_FINALLY_PROCESS**: Solo para errores críticos
+- **SUCCESS_FINALLY_PROCESS**: Confirmación de CSVs generados
+- **Filtrado inteligente**: Evita spam por errores menores
+
+### 8. Persistencia
+- **Estructura completa**: Todos los artefactos en Blob Storage
+- **Jerarquía del proyecto**: Organización clara por fases
+- **Trazabilidad**: Logs detallados en Application Insights
 
 ## Prácticas de seguridad y cumplimiento
 - No versionar secretos: .gitignore incluye archivos locales y tests con credenciales.
@@ -585,10 +752,69 @@ Consulta .env.example para un listado con ejemplos de valores y formatos admitid
 - Los archivos de prompts no deben incluir datos confidenciales.
 - Revisión de logs: evitar registrar valores de claves o tokens.
 
-## Despliegue y pruebas
-- Despliegue a Azure Functions
-  - Ejecuta ./azure_functions/deploy_functions.sh con el entorno autenticado en Azure.
-- Pruebas de integración
-  - Usa scripts en azure_functions/tests para validar conectividad, colas, logs y contenido de Blob.
-- Monitoreo
-  - Application Insights + logs de Functions para telemetría y diagnóstico.
+## Despliegue y Pruebas
+
+### Despliegue a Azure Functions
+```bash
+# Navegar al directorio de functions
+cd azure_functions
+
+# Ejecutar script de despliegue completo
+./redeploy_complete_functions.sh
+
+# O despliegue manual con Azure CLI
+az functionapp deployment source config-zip \
+  -g your-resource-group \
+  -n your-function-app \
+  --src deployment.zip
+```
+
+### 🆕 Scripts de Testing Incluidos
+
+#### Validación de Proyectos y CSVs
+```bash
+# Listar proyectos con JSON finales disponibles
+cd azure_functions/tests
+python3 list_projects_with_json.py
+
+# Test de generación CSV (local y remoto)
+python3 test_csv_generation.py CFA009238
+```
+
+#### Testing de Conectividad
+```bash
+# Verificar tamaño de cola Service Bus
+python3 check_queue_size.py
+
+# Obtener información de cola
+python3 get_queue_info.py
+
+# Ver mensajes pendientes
+python3 peek_queue_messages.py
+
+# Enviar mensaje de prueba
+python3 send_test_message_simple.py
+
+# Enviar mensajes para múltiples proyectos
+python3 send_test_messages_for_projects.py
+```
+
+### Pruebas de Integración
+- **Conectividad**: Validar Azure services (Storage, OpenAI, Document Intelligence)
+- **Service Bus**: Verificar colas y mensajes
+- **Blob Storage**: Validar contenido y estructura de proyectos
+- **🆕 Generación CSV**: Probar conversión JSON → CSV
+- **🆕 Notificaciones**: Validar envío de correos
+
+### Monitoreo y Diagnóstico
+- **Application Insights**: Telemetría y logs detallados
+- **Azure Functions Logs**: Logs en tiempo real
+- **🆕 Notificaciones de Estado**: Alertas automáticas por errores críticos
+- **Métricas de Performance**: Tiempo de procesamiento y throughput
+
+### Validación Post-Despliegue
+1. **Verificar Functions**: Todas las functions desplegadas y funcionando
+2. **Test de Conectividad**: Ejecutar scripts de testing
+3. **Procesar Proyecto de Prueba**: Usar proyecto CFA009238 para validación completa
+4. **Verificar CSVs**: Confirmar generación exitosa de archivos finales
+5. **Validar Notificaciones**: Probar envío de correos SUCCESS/ERROR
