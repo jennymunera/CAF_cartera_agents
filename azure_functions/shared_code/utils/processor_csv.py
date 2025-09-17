@@ -87,27 +87,60 @@ def process_ndjson_or_json_to_csv(
                 if key.lower() == "codigo_cfx" and (is_producto or is_auditoria):
                    continue
 
-                if key == "codigo_CFA":
-                    row[key] = _normalizar_codigo_cfa(value)
+                if key.lower() == "codigo_cfa": 
+                    normalized_cfa = _normalizar_codigo_cfa(value)
+                    # Validar que el código CFA no esté vacío después de normalizar
+                    if not normalized_cfa or normalized_cfa.strip() == "":
+                        logging.warning(f"Código CFA vacío o inválido en registro: {item}")
+                        break  # Saltar este registro completo
+                    row[key] = normalized_cfa
                 elif isinstance(value, dict) and "value" in value:
-                    row[key] = value["value"]
+                    # Filtrar valores None o vacíos en campos críticos
+                    field_value = value["value"]
+                    if field_value is None or (isinstance(field_value, str) and field_value.strip() == ""):
+                        # Para campos críticos, usar valor por defecto o saltar
+                        if key in ["descripcion_producto", "monto_usd", "monto_original"]:
+                            continue  # No agregar el campo si está vacío
+                    row[key] = field_value
                     # Para auditoría: si es concepto_* objeto y no termina en _norm, agregar columna evidence
                     if is_auditoria and key.startswith("concepto_") and not key.endswith("_norm"):
                         row[f"{key}_evidence"] = value.get("evidence")
                 else:
-                    row[key] = value
-            processed_rows.append(row)
+                    # Filtrar valores None directos
+                    if value is not None:
+                        row[key] = value
+            
+            # Solo agregar la fila si tiene código CFA válido
+            if "codigo_CFA" in row and row["codigo_CFA"]:
+                processed_rows.append(row)
+            else:
+                logging.warning(f"Registro descartado por código CFA inválido: {item.get('codigo_CFA', 'N/A')}")
 
         # Crear DataFrame
         df_new = pd.DataFrame(processed_rows)
+        
+        # Validar que hay datos para procesar
+        if df_new.empty:
+            logging.warning(f"No hay registros válidos para procesar en {source_json_blob}")
+            return 0
+        
+        # Logging detallado
+        logging.info(f"📊 Procesamiento {source_json_blob}:")
+        logging.info(f"   Registros originales: {len(records)}")
+        logging.info(f"   Registros válidos: {len(processed_rows)}")
+        logging.info(f"   Registros filtrados: {len(records) - len(processed_rows)}")
 
-        # Intentar leer CSV existente
+        # Manejar CSV existente con concatenación simple
         csv_blob_client = container_client.get_blob_client(output_csv_blob)
         try:
             existing_data = csv_blob_client.download_blob().readall()
             df_existing = pd.read_csv(io.BytesIO(existing_data))
+            
+            # Concatenar sin eliminar duplicados
             df_final = pd.concat([df_existing, df_new], ignore_index=True)
-        except Exception:
+            
+        except Exception as e:
+            logging.info(f"   CSV nuevo (no existía previamente): {len(df_new)} registros")
             df_final = df_new
 
         # Guardar CSV en memoria y subir
@@ -116,7 +149,7 @@ def process_ndjson_or_json_to_csv(
         output_stream.seek(0)
         csv_blob_client.upload_blob(output_stream, overwrite=True)
 
-        logging.info(f"CSV actualizado en blob: {container_name}/{output_csv_blob}")
+        logging.info(f"✅ CSV actualizado en blob: {container_name}/{output_csv_blob} - Total: {len(df_final)} registros")
         return len(processed_rows)
 
     except Exception as e:
@@ -162,9 +195,7 @@ def process_json_to_csv(
             row = {}
 
             for key, value in data.items():
-                if key == "codigo_CFA":
-                    row[key] = _normalizar_codigo_cfa(value)
-                elif isinstance(value, dict) and "value" in value:
+                if isinstance(value, dict) and "value" in value:
                     row[key] = value["value"]
                 else:
                     row[key] = value
