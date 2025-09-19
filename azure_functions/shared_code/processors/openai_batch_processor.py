@@ -36,6 +36,9 @@ Si hay múltiples versiones, usa la más reciente y registra cambios en observac
 
 CFA y CFX son códigos distintos, deben extraerse por separado.
 
+Uso del nombre del archivo fuente (consistencia):
+Si el contexto incluye "Datos del documento" → "Nombre de archivo fuente", úsalo para confirmar que el tipo de documento es IXP y, si el nombre contiene pistas de versión/fecha/año, prefiere la versión más reciente cuando corresponda. No inventes: si hay ambigüedad, justifica en observacion.
+
 Checklist anti–“NO EXTRAIDO”:
 
 Agota en este orden antes de marcar un campo como NO_EXTRAIDO:
@@ -60,7 +63,17 @@ codigo_CFX: cabeceras o secciones administrativas/financieras. Variantes: “Có
 
 opiniones (control interno / licitación / uso de recursos / unidad ejecutora): solo en Opinión/Dictamen/Conclusión → lenguaje sobre suficiencia/deficiencias, adquisiciones/procurement, conformidad vs plan, desempeño UGP.
 
-fecha_ultima_revision: encabezados/pies (“Última revisión/Actualización”).
+fecha_ultima_revision:
+- Definición: fecha del documento revisado (fecha de última revisión/actualización/emisión/aprobación del propio documento).
+- Dónde buscar (orden de preferencia):
+  1) Portada/primeras páginas (p. ej., “Fecha del documento”, “Fecha de emisión”, “Última revisión”, “Actualización”).
+  2) Encabezados y pies de página (marcas de versión/actualización).
+  3) Bloques de firmas/visas/actas (“Revisado por”, “Aprobado el”, “Visto bueno”) con fecha explícita del documento.
+  4) Notas internas de versión o leyendas (“Versión vX.Y – Actualizada el …”).
+  5) Metadatos visibles en el contenido (p. ej., “Documento creado el/Actualizado el”); no inventes.
+- Variantes multiidioma (ejemplos): “Última revisión”, “Actualización”, “Fecha del documento”, “Versión”, “Modificado”, “Revisado el”, “Aprobado el”, “Updated”, “Last revised”, “Reviewed on”, “Approved on”, “Atualizado”, “Revisto”.
+- Qué NO usar: fechas de tablas/cronogramas/eventos históricos externos; fechas de anexos salvo que indiquen explícitamente la revisión del documento principal; nunca usar fecha_extraccion o la fecha actual como sustituto.
+- Normalización: devuelve “YYYY-MM-DD”; si no puedes determinarla con evidencia suficiente, deja value=null; incluye evidence con la cita breve.
 
 Campos SSC (ver lista abajo): su evidencia se acepta desde SSC o tablas administrativas solo si el campo está marcado como SSC y la fuente está habilitada (ver Gating).
 
@@ -137,16 +150,15 @@ Si no hay evidencia → value=null, confidence="NO_EXTRAIDO", evidence=null.
 
 concepto_rationale y texto_justificacion: siempre una cita corta (1–2 frases) de Opinión/Dictamen.
 
-fecha_extraccion: fecha-hora actual del sistema.
+fecha_extraccion: fecha actual del procesamiento (momento en que OpenAI procesa este prompt). Devuélvela siempre en formato fecha (YYYY-MM-DD). Si no puedes determinarla de forma fiable, deja null.
 
-nombre_archivo: Buscar el nombre completo del archivo fuente en:
-- Encabezados y pies de página del documento
-- Metadatos y propiedades del documento
-- Referencias al archivo en el contenido
-- Nombres de archivo mencionados en el texto
-- Si no se encuentra explícitamente, inferir desde el contexto del documento
-- Incluir la extensión del archivo (.pdf, .docx, etc.) si está disponible
+nombre_archivo:
+- Si el contexto incluye "Datos del documento" → "Nombre de archivo fuente", usa ese valor exactamente (incluida la extensión).
+- Si no está presente, búscalo en encabezados/pies, metadatos, referencias o texto; si no aparece, infiérelo con la mejor evidencia disponible.
 - Ejemplo: "IXP-CFA009660-Auditoria-Externa-2024.pdf"
+
+Formato de fechas:
+- Todas las fechas en este prompt (incluyendo cualquier campo que comience por "fecha_") deben devolverse en formato fecha: "YYYY-MM-DD". Si no puedes determinar una fecha con evidencia, deja null.
 
 Esquema de salida JSON
 {
@@ -174,7 +186,7 @@ Esquema de salida JSON
   "fecha_vencimiento_SSC": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
   "fecha_cambio_estado_informe_SSC": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
 
-  "fecha_extraccion": "YYYY-MM-DD HH:MM",
+  "fecha_extraccion": "YYYY-MM-DD",
   "fecha_ultima_revision": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
 
   "status_auditoria_SSC": "Pendiente",
@@ -204,6 +216,8 @@ Jerarquía: ROP > INI > DEC.
 Proyectados: buscar primero en Cronograma/Programación/Calendario (ROP/INI); si no hay, usar DEC.
 
 Realizados: “Detalle/Estado de desembolsos”, EEFF o narrativa (en cualquier documento).
+
+Uso del nombre del archivo fuente (consistencia): si está presente, úsalo para confirmar el tipo del documento (ROP/INI/DEC) y para inferir versión/año a efectos de priorizar la versión más reciente cuando aplique. No inventes si hay ambigüedad: deja evidencia y observacion.
 
 En duplicados/versiones: usar la versión más reciente y registrar cambios en observacion (periodificación, montos, moneda, fuente, documento).
 
@@ -238,16 +252,21 @@ monto_usd: solo si hay columna/registro explícito en USD o “Equivalente USD�
 
 Fuente CAF (fuente_etiqueta): etiqueta clara: “CAF Realizado”, “Proyectado (Cronograma)”, “Anticipo”, “Pago directo”, “Reembolso”, con referencia de documento (p. ej. “(ROP)”, “(INI)”, “(DEC)” si está indicada).
 
-Fecha de última revisión: encabezados/pies o notas ("Última revisión/Actualización/Fecha del documento/Versión/Modificado/Revisado el").
+Fecha de última revisión:
+- Definición: fecha del documento revisado (fecha de última revisión/actualización/emisión/aprobación del propio documento).
+- Dónde buscar (orden de preferencia): portada/primeras páginas; encabezados y pies; bloques de firmas/visas (“Revisado/Aprobado el …”); notas de versión; metadatos visibles en el contenido.
+- Variantes multiidioma (ejemplos): “Última revisión”, “Actualización”, “Fecha del documento”, “Versión”, “Modificado”, “Revisado el”, “Aprobado el”, “Updated”, “Last revised”, “Reviewed on”, “Approved on”, “Atualizado”, “Revisto”.
+- No usar: fechas de tablas/cronogramas/eventos históricos ni de anexos salvo que indiquen explícitamente la revisión del documento principal.
+- Normalización: “YYYY-MM-DD”; si no puedes determinarla con evidencia, deja null.
 
-Nombre del archivo revisado: Buscar el nombre completo del archivo fuente en:
-- Encabezados y pies de página del documento
-- Metadatos y propiedades del documento
-- Referencias al archivo en el contenido
-- Nombres de archivo mencionados en el texto
-- Si no se encuentra explícitamente, inferir desde el contexto del documento
-- Incluir la extensión del archivo (.pdf, .docx, etc.) si está disponible
+Nombre del archivo revisado:
+- Si el contexto incluye "Datos del documento" → "Nombre de archivo fuente", usa ese valor exactamente (incluida la extensión).
+- Si no está presente, búscalo en encabezados/pies, metadatos, referencias o texto; si no aparece, infiérelo con la mejor evidencia disponible.
 - Ejemplo: "ROP-CFA009660-Cronograma-Desembolsos-2024.pdf"
+
+Fuente (fuente_etiqueta):
+- Incluye una etiqueta clara (p. ej., "CAF Realizado", "Proyectado (Cronograma)", "Anticipo", "Pago directo", "Reembolso") y la referencia del documento.
+- Si `nombre_archivo` está disponible, añádelo entre paréntesis al final. Ej.: "CAF Realizado (DEC) (ROP-CFA009660-Cronograma-Desembolsos-2024.pdf)".
 
 Reglas de extracción y deduplicación:
 
@@ -318,6 +337,9 @@ Salida esperada (una sola fila JSON):
   monto_usd.value=920000 (si tu esquema conserva columna explícita);
   fuente_norm="Proyectado (Cronograma)".
 
+Formato de fechas:
+- Todas las fechas (incluyendo cualquier clave que comience por "fecha_") deben devolverse en formato fecha: "YYYY-MM-DD". Si no puedes determinar una fecha con evidencia, deja null.
+
 Esquema de salida JSON (por registro)
 {
   "codigo_CFA": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
@@ -337,7 +359,7 @@ Esquema de salida JSON (por registro)
 
   "fuente_norm": null,  // CAF Realizado | Proyectado (Cronograma) | Anticipo | Pago directo | Reembolso | Transferencia | Giro | null
 
-  "fecha_extraccion": "YYYY-MM-DD HH:MM",
+  "fecha_extraccion": "YYYY-MM-DD",
 
   "fecha_ultima_revision": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null },
 
@@ -364,6 +386,8 @@ Prioridad documental:
 Jerarquía: ROP > INI > DEC > IFS > Anexo Excel (si lo cita el índice).
 
 En duplicados: usar la versión más reciente; si cambian valores, registrar en observacion.
+
+Uso del nombre del archivo fuente (consistencia): si está presente, úsalo para confirmar el tipo del documento (ROP/INI/DEC/IFS) y, cuando el nombre indique versión/año, prefiere la versión más reciente. Si hay ambigüedad, no inventes: deja evidencia y observacion.
 
 Checklist anti–“NO_EXTRAIDO”:
 
@@ -393,7 +417,12 @@ Característica: {administración, capacitación, fortalecimiento institucional,
 
 Check_producto: “Sí” si corresponde inequívocamente a producto (no resultado).
 
-Fecha última revisión: encabezados/pies.
+Fecha última revisión:
+- Definición: fecha del documento revisado (fecha de última revisión/actualización/emisión/aprobación del propio documento).
+- Dónde buscar (orden de preferencia): portada/primeras páginas; encabezados y pies; bloques de firmas/visas (“Revisado/Aprobado el …”); notas de versión; metadatos visibles en el contenido.
+- Variantes multiidioma (ejemplos): “Última revisión”, “Actualización”, “Fecha del documento”, “Versión”, “Modificado”, “Revisado el”, “Aprobado el”, “Updated”, “Last revised”, “Reviewed on”, “Approved on”, “Atualizado”, “Revisto”.
+- No usar: fechas de tablas/cronogramas/eventos históricos ni de anexos salvo que indiquen explícitamente la revisión del documento principal.
+- Normalización: “YYYY-MM-DD”; si no puedes determinarla con evidencia, deja null.
 
 Reglas especiales:
 
@@ -451,14 +480,14 @@ Si no hay evidencia → value=null, confidence="NO_EXTRAIDO".
 
 fecha_extraccion: fecha-hora actual del sistema.
 
-nombre_archivo: Buscar el nombre completo del archivo fuente en:
-- Encabezados y pies de página del documento
-- Metadatos y propiedades del documento
-- Referencias al archivo en el contenido
-- Nombres de archivo mencionados en el texto
-- Si no se encuentra explícitamente, inferir desde el contexto del documento
-- Incluir la extensión del archivo (.pdf, .docx, etc.) si está disponible
+nombre_archivo:
+- Si el contexto incluye "Datos del documento" → "Nombre de archivo fuente", usa ese valor exactamente (incluida la extensión).
+- Si no está presente, búscalo en encabezados/pies, metadatos, referencias o texto; si no aparece, infiérelo con la mejor evidencia disponible.
 - Ejemplo: "ROP-CFA009660-Marco-Logico-Productos-2024.pdf"
+
+Fuente del indicador (fuente_indicador):
+- Incluye la referencia del documento de donde se extrajo el indicador.
+- Si `nombre_archivo` está disponible, añádelo entre paréntesis al final.
 
 Esquema de salida JSON (por producto)
 {
@@ -598,13 +627,13 @@ class OpenAIBatchProcessor:
         elif prompt_number == 2:  # Productos
             allowed_prefixes = ['ROP', 'INI', 'DEC', 'IFS']
         elif prompt_number == 3:  # Desembolsos
-            allowed_prefixes = ['ROP', 'INI', 'DEC', 'IFS']
+            allowed_prefixes = ['ROP', 'INI', 'DEC']
         else:
             return False
         
         return document_prefix in allowed_prefixes
     
-    def _create_batch_request(self, custom_id: str, prompt: str, content: str) -> Dict[str, Any]:
+    def _create_batch_request(self, custom_id: str, prompt: str, content: str, file_name: Optional[str] = None) -> Dict[str, Any]:
         """
         Crea una request individual para el batch job.
         
@@ -616,6 +645,11 @@ class OpenAIBatchProcessor:
         Returns:
             Dict con la estructura de request para batch
         """
+        # Inyectar el nombre de archivo fuente al prompt del usuario para mejorar extracción
+        file_header = ""
+        if file_name:
+            file_header = f"\n\nDatos del documento:\n- Nombre de archivo fuente: {file_name}"
+
         return {
             "custom_id": custom_id,
             "method": "POST",
@@ -629,7 +663,7 @@ class OpenAIBatchProcessor:
                     },
                     {
                         "role": "user", 
-                        "content": f"{prompt}\n\nDocumento:\n{content}"
+                        "content": f"{prompt}{file_header}\n\nDocumento:\n{content}"
                     }
                 ],
                 "max_completion_tokens": 1000,
@@ -808,7 +842,8 @@ class OpenAIBatchProcessor:
                     if self._should_process_with_prompt(chunk_content, prompt_num):
                         custom_id = f"{document_name}_{prompt_type}_chunk_{i:03d}"
                         
-                        request = self._create_batch_request(custom_id, prompt_text, content_text)
+                        # Pasar el nombre de archivo fuente directamente (document_name)
+                        request = self._create_batch_request(custom_id, prompt_text, content_text, document_name)
                         batch_requests.append(request)
                         doc_info["prompts_applied"].append(prompt_type)
                 
@@ -932,8 +967,10 @@ class OpenAIBatchProcessor:
                     custom_id = f"{project_name}_{Path(doc_name).stem}_prompt{prompt_num}"
                     prompt = self.prompts[f'prompt_{prompt_num}']
                     content = doc_data.get('content', '')
+                    # Determinar el nombre de archivo fuente preferentemente desde el contenido JSON
+                    source_file_name = doc_data.get('document_name') or doc_data.get('filename') or doc_name
                     
-                    batch_request = self._create_batch_request(custom_id, prompt, content)
+                    batch_request = self._create_batch_request(custom_id, prompt, content, source_file_name)
                     batch_requests.append(batch_request)
                     
                     # Mapear número de prompt a tipo
@@ -949,6 +986,7 @@ class OpenAIBatchProcessor:
                             "prompt_text": prompt,
                             "context": content,
                             "document_name": doc_name,
+                            "source_file_name": source_file_name,
                             "document_type": doc_type,
                             "subfolder": subfolder,
                             "prefix": prefix,
@@ -961,6 +999,7 @@ class OpenAIBatchProcessor:
             if prompts_applied:
                 documents_info.append({
                     "document_name": doc_name,
+                    "source_file_name": source_file_name,
                     "document_type": doc_type,
                     "subfolder": subfolder,
                     "prefix": prefix,
@@ -1022,7 +1061,7 @@ class OpenAIBatchProcessor:
                     if chunk_index is not None:
                         custom_id += f"_chunk_{chunk_index:03d}"
                     
-                    request = self._create_batch_request(custom_id, prompt_text, content_text)
+                    request = self._create_batch_request(custom_id, prompt_text, content_text, document_name)
                     batch_requests.append(request)
                     doc_info["prompts_applied"].append(prompt_type)
             
