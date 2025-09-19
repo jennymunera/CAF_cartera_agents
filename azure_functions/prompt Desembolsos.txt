@@ -17,6 +17,8 @@ Proyectados: buscar primero en Cronograma/Programación/Calendario (ROP/INI); si
 
 Realizados: “Detalle/Estado de desembolsos”, EEFF o narrativa (en cualquier documento).
 
+Uso del nombre del archivo fuente (consistencia): si está presente, úsalo para confirmar el tipo de documento (ROP/INI/DEC) y para inferir versión/año a efectos de priorizar la versión más reciente cuando aplique. Si hay ambigüedad, no inventes: deja evidencia y observacion.
+
 En duplicados/versiones: usar la versión más reciente y registrar cambios en observacion (periodificación, montos, moneda, fuente, documento).
 
 Checklist anti–“NO_EXTRAIDO” (agotar en orden)
@@ -39,27 +41,32 @@ Código de operación (CFX): portada/primeras páginas, cabecera del cronograma,
 
 Fecha de desembolso (período):
 
-“Detalle/Estado de desembolsos”, “Desembolsos efectuados/realizados”, “Pagos ejecutados”, “Transferencias realizadas”, “Cronograma/Programación/Calendario de desembolsos”, “Flujo de caja”, “Proyección financiera”.
+Busca en secciones/tablas con títulos como:
+- “Cronograma de desembolsos”, “Programación de desembolsos”, “Calendario de desembolsos”, “Plan de desembolsos”.
+- “Proyección de desembolsos”, “Cuadro de proyección de desembolsos”, “Proyección financiera”.
+- “Detalle/Estado de desembolsos”, “Desembolsos efectuados/realizados” (sólo como contexto; NO emitas realizados), “Pagos ejecutados”, “Transferencias realizadas”.
+- “Flujo de caja / Cash flow”.
 
-Formatos válidos: YYYY, YYYY-MM, YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, DD-MM-YYYY, Enero 2023, Q1 2023, Trimestre 1, Semestre 2, 2024-06.
+Formatos válidos: YYYY, YYYY-MM, YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, DD-MM-YYYY, Enero 2023, Q1 2023, Trimestre 1, Semestre 2, 2024-06. En la salida, todas las fechas deben devolverse en formato "YYYY-MM-DD". Si sólo hay periodo (mes/año o año), deja null y explica en evidence.
 
-Monto desembolsado CAF (monto_original): columna “Monto/Importe/Desembolsado/Valor/Total” (extrae número puro, sin símbolos y sin conversiones).
+Monto desembolsado CAF (monto_original): columna “Monto/Importe/Desembolsado/Valor/Total” (extrae número puro, sin símbolos y sin conversiones). Si aparecen magnitudes como “K”, “M/MM”, “B” (p. ej. “500MM USD”), no escales el número: asigna monto_original.value=500; moneda.value="USD"; y agrega monto_magnitud.value="MM".
 
 moneda: columna “Moneda” o heredar desde título/cabecera/leyenda de la tabla (p. ej. “(USD)”, “Moneda: PEN”) → entonces confidence="EXTRAIDO_INFERIDO" con evidencia de la leyenda.
 
 monto_usd: solo si hay columna/registro explícito en USD o “Equivalente USD”. No crear fila aparte en USD si ya existe la moneda original para el mismo período/tipo_registro (ver DEDUP).
 
-Fuente CAF (fuente_etiqueta): etiqueta clara: “CAF Realizado”, “Proyectado (Cronograma)”, “Anticipo”, “Pago directo”, “Reembolso”, con referencia de documento (p. ej. “(ROP)”, “(INI)”, “(DEC)” si está indicada).
+Fuente CAF (fuente_etiqueta): etiqueta clara: “CAF Realizado”, “Proyectado (Cronograma)”, “Anticipo”, “Pago directo”, “Reembolso”, con referencia de documento (p. ej. “(ROP)”, “(INI)”, “(DEC)” si está indicada). Si `nombre_archivo` está disponible, añádelo al final entre paréntesis. Ej.: “CAF Realizado (DEC) (ROP-CFA009660-Cronograma-Desembolsos-2024.pdf)”.
 
-Fecha de última revisión: encabezados/pies o notas ("Última revisión/Actualización/Fecha del documento/Versión/Modificado/Revisado el").
+Fecha de última revisión:
+- Definición: fecha del documento revisado (fecha de última revisión/actualización/emisión/aprobación del propio documento).
+- Dónde buscar (orden de preferencia): portada/primeras páginas; encabezados y pies; bloques de firmas/visas (“Revisado/Aprobado el …”); notas de versión; metadatos visibles en el contenido.
+- Variantes multiidioma (ejemplos): “Última revisión”, “Actualización”, “Fecha del documento”, “Versión”, “Modificado”, “Revisado el”, “Aprobado el”, “Updated”, “Last revised”, “Reviewed on”, “Approved on”, “Atualizado”, “Revisto”.
+- No usar: fechas de tablas/cronogramas/eventos históricos ni de anexos salvo que indiquen explícitamente la revisión del documento principal.
+- Normalización: “YYYY-MM-DD”; si no puedes determinarla con evidencia, deja null y cita la evidencia revisada.
 
-Nombre del archivo revisado: Buscar el nombre completo del archivo fuente en:
-- Encabezados y pies de página del documento
-- Metadatos y propiedades del documento
-- Referencias al archivo en el contenido
-- Nombres de archivo mencionados en el texto
-- Si no se encuentra explícitamente, usar el nombre del documento procesado
-- Incluir la extensión del archivo (.pdf, .docx, etc.) si está disponible
+Nombre del archivo revisado:
+- Si el contexto incluye "Datos del documento" → "Nombre de archivo fuente", usa ese valor exactamente (incluida la extensión).
+- Si no está presente, búscalo en encabezados/pies, metadatos, referencias o texto; si no aparece, infiérelo con la mejor evidencia disponible.
 - Ejemplo: "ROP-CFA009660-Cronograma-Desembolsos-2024.pdf"
 
 
@@ -103,8 +110,7 @@ Reglas de salida (cardinalidad y formato)
 
 Cardinalidad
 
-Detecta todos los registros de desembolso en el/los documento(s).
-Por CADA registro identificado (unidad mínima = período/fecha × moneda × tipo_registro):
+Detecta todos los registros de desembolso PROYECTADOS/PROGRAMADOS en el/los documento(s). NO emitas registros realizados. Por CADA registro proyectado identificado (unidad mínima = período/fecha × moneda):
 EMITE UNA (1) instancia del esquema completo “Esquema de salida JSON (por registro)”.
 No agregues ni elimines claves.
 Si falta evidencia en una clave: value=null, confidence="NO_EXTRAIDO", evidence=null.
@@ -138,6 +144,12 @@ Salida esperada (una sola fila JSON):
   fuente_norm="Proyectado (Cronograma)".
 
 
+Formato de fechas:
+- Todas las fechas (incluyendo cualquier clave que comience por "fecha_") deben devolverse en formato fecha: "YYYY-MM-DD". Si no puedes determinar una fecha con evidencia, deja null.
+
+Formato de fechas:
+- Todas las fechas deben devolverse como fecha "YYYY-MM-DD". Si no hay día disponible (sólo mes/año o año), deja null y documenta en evidence.
+
 Esquema de salida JSON (por registro)
 {
   "codigo_CFX": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
@@ -148,6 +160,7 @@ Esquema de salida JSON (por registro)
   "fecha_desembolso": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
 
   "monto_original": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
+  "monto_magnitud": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
 
   "moneda": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
 
@@ -157,7 +170,7 @@ Esquema de salida JSON (por registro)
 
   "fuente_norm": null,  // CAF Realizado | Proyectado (Cronograma) | Anticipo | Pago directo | Reembolso | Transferencia | Giro | null
 
-  "fecha_extraccion": "YYYY-MM-DD HH:MM",
+  "fecha_extraccion": "YYYY-MM-DD",
 
   "fecha_ultima_revision": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null },
 

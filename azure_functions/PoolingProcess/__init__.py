@@ -897,6 +897,30 @@ class BatchResultsProcessor:
             for idx, obj in enumerate(normalized_list or []):
                 # Construir estructura de resultado por objeto
                 this_custom_id = custom_id if len(normalized_list) == 1 else f"{custom_id}_part_{idx+1:03d}"
+                # Sellar/normalizar fecha_extraccion: aceptar YYYY-MM-DD o YYYY-MM-DD HH:MM; si falta/invalid, usar datetime actual
+                try:
+                    import re as _re
+                    processed_at_iso = datetime.now().isoformat()
+                    processed_date = processed_at_iso[:10]           # YYYY-MM-DD
+                    processed_dt = processed_at_iso.replace('T', ' ')[:16]  # YYYY-MM-DD HH:MM
+                    if isinstance(obj, dict):
+                        if 'fecha_extraccion' in obj:
+                            fx = obj.get('fecha_extraccion')
+                            def _valid(s: str) -> bool:
+                                return bool(_re.match(r'^\d{4}-\d{2}-\d{2}$', s) or _re.match(r'^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}$', s))
+                            if isinstance(fx, dict) and 'value' in fx:
+                                v = fx.get('value')
+                                if not (isinstance(v, str) and _valid(v)):
+                                    obj['fecha_extraccion']['value'] = processed_dt
+                            elif isinstance(fx, str):
+                                if not _valid(fx):
+                                    obj['fecha_extraccion'] = processed_dt
+                            else:
+                                obj['fecha_extraccion'] = processed_dt
+                        else:
+                            obj['fecha_extraccion'] = processed_dt
+                except Exception:
+                    pass
                 result_data = {
                     "custom_id": this_custom_id,
                     "document_name": document_name,

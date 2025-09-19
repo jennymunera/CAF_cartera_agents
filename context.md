@@ -29,7 +29,7 @@
 ### Componentes Principales
 
 ```
-Agentes_jen_rebuild/
+CAF_cartera_agents/
 ├── azure_functions/          # Azure Functions (producción)
 │   ├── shared_code/          # 🆕 Código compartido centralizado
 │   │   ├── processors/       # Procesadores de negocio
@@ -94,10 +94,10 @@ caf-documents/
 ### Filtrado por Prefijos de Documentos
 
 ```python
-# Prefijos permitidos por tipo de prompt
-AUDIT_PREFIXES = ['AUD', 'AUDIT', 'REV']
-DISBURSEMENT_PREFIXES = ['DIS', 'DESEM', 'PAY']
-PRODUCT_PREFIXES = ['PROD', 'PRODUCT', 'SERV']
+# Prefijos permitidos por tipo de prompt (según implementación)
+AUDIT_PREFIXES = ['IXP']
+DISBURSEMENT_PREFIXES = ['ROP', 'INI', 'DEC', 'IFS']
+PRODUCT_PREFIXES = ['ROP', 'INI', 'DEC', 'IFS']
 ```
 
 ### Prompts Disponibles
@@ -110,12 +110,10 @@ PRODUCT_PREFIXES = ['PROD', 'PRODUCT', 'SERV']
 
 ### Scripts de Diagnóstico (`azure_functions/tests/`)
 
-- `diagnose_openai_variables.py`: Diagnóstica configuración OpenAI
-- `check_blob_content.py`: Verifica contenido en Blob Storage
-- `check_documents.py`: Analiza documentos vs prefijos permitidos
-- `configure_azure_variables.sh`: Configura variables de entorno
-- `send_test_message_simple.py`: Envía mensajes de prueba
-- `download_batch_info.py`: Descarga información de batches
+- `check_queue_size.py`, `get_queue_info.py`, `peek_queue_messages.py`, `purge_queue.py`
+- `send_test_message_simple.py`, `send_test_messages_for_projects.py`
+- `list_projects_with_json.py` (lista proyectos con JSON finales)
+- `send_csv_generation.py` (invoca generación de CSVs)
 
 ### Entorno Local (`local/`)
 

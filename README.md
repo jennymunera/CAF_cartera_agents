@@ -22,61 +22,49 @@ Este proyecto implementa un sistema de procesamiento de documentos utilizando Az
 ```
 CAF_cartera_agents/
 ├── README.md
-├── .env.example
-├── .gitignore
 ├── context.md
-├── .vscode/
-│   ├── extensions.json
-│   ├── launch.json
-│   ├── settings.json
-│   └── tasks.json
-├── azure_functions/                    # Azure Functions para despliegue en la nube
-│   ├── .funcignore
+├── azure_functions/
 │   ├── host.json
 │   ├── requirements.txt
 │   ├── redeploy_complete_functions.sh
-│   ├── local.settings.json
-│   ├── OpenAiProcess/                  # Function: Procesamiento de documentos
+│   ├── OpenAiProcess/
 │   │   ├── __init__.py
 │   │   └── function.json
-│   ├── PoolingProcess/                 # Function: Polling de resultados
+│   ├── PoolingProcess/
 │   │   ├── __init__.py
 │   │   └── function.json
-│   ├── 🆕 FinalCsvProcess/             # Function: Generación de CSVs
+│   ├── FinalCsvProcess/
 │   │   ├── __init__.py
 │   │   └── function.json
-│   ├── shared_code/                    # Código compartido entre functions
-│   │   ├── __init__.py
+│   ├── shared_code/
 │   │   ├── processors/
-│   │   │   ├── __init__.py
 │   │   │   ├── document_intelligence_processor.py
 │   │   │   ├── chunking_processor.py
 │   │   │   └── openai_batch_processor.py
 │   │   ├── schemas/
-│   │   │   ├── __init__.py
 │   │   │   └── validation_schemas.py
 │   │   └── utils/
-│   │       ├── __init__.py
 │   │       ├── app_insights_logger.py
 │   │       ├── blob_storage_client.py
 │   │       ├── cosmo_db_client.py
 │   │       ├── pooling_event_timer_processor.py
-│   │       ├── 🆕 build_email_payload.py
-│   │       ├── 🆕 notifications_service.py
-│   │       ├── 🆕 processor_csv.py
-│   │       └── 🆕 final_output_process.py
-│   ├── 🆕 prompt Auditoria.txt         # Prompts multiidioma actualizados
-│   ├── 🆕 prompt Desembolsos.txt
-│   ├── 🆕 prompt Productos.txt
-│   └── tests/                          # Scripts de testing
+│   │       ├── build_email_payload.py
+│   │       ├── notifications_service.py
+│   │       ├── processor_csv.py
+│   │       └── final_output_process.py
+│   ├── prompt Auditoria.txt
+│   ├── prompt Desembolsos.txt
+│   ├── prompt Productos.txt
+│   └── tests/
 │       ├── check_queue_size.py
 │       ├── get_queue_info.py
+│       ├── list_projects_with_json.py
 │       ├── peek_queue_messages.py
+│       ├── purge_queue.py
+│       ├── send_csv_generation.py
 │       ├── send_test_message_simple.py
-│       ├── send_test_messages_for_projects.py
-│       ├── 🆕 list_projects_with_json.py
-│       └── 🆕 test_csv_generation.py
-└── local/                              # Componentes para desarrollo local
+│       └── send_test_messages_for_projects.py
+└── local/
     ├── chunking_processor.py
     ├── document_intelligence_processor.py
     ├── logging_config.json
@@ -86,13 +74,8 @@ CAF_cartera_agents/
     ├── prompt Auditoria.txt
     ├── prompt Desembolsos.txt
     ├── prompt Productos.txt
-    ├── schemas/
-    │   ├── __init__.py
-    │   └── validation_schemas.py
-    ├── tests/
-    │   └── output/
+    ├── schemas/validation_schemas.py
     └── utils/
-        ├── __init__.py
         ├── app_insights_logger.py
         ├── blob_storage_client.py
         └── jsonl_handler.py
@@ -106,9 +89,9 @@ El sistema se divide en componentes locales y en la nube:
    - Integración con Azure services para simulación.
 
 2. **Azure Functions** (directorio `azure_functions/`):
-   - `OpenAiProcess`: Trigger por Service Bus para procesar documentos y enviar batches a OpenAI.
-   - `PoolingProcess`: Timer trigger (cada 5 minutos) para verificar y procesar resultados de batches.
-   - **🆕 `FinalCsvProcess`**: HTTP trigger para generar CSVs finales desde JSON procesados.
+   - `OpenAiProcess`: Trigger por Service Bus para DI → chunking por documento → creación de batch OpenAI.
+   - `PoolingProcess`: Timer trigger (cada 5 minutos) para verificar estado de batches, procesar resultados y marcar batch procesado.
+   - `FinalCsvProcess`: HTTP trigger para generar CSVs finales desde JSON procesados y notificar éxito.
 
 3. **Flujo General**:
    - Carga de documento desde Blob Storage.
@@ -200,8 +183,8 @@ El sistema se divide en componentes locales y en la nube:
 ### Testing y Validación
 **Scripts de Prueba Incluidos**:
 - `list_projects_with_json.py`: Lista proyectos con JSON finales disponibles
-- `test_csv_generation.py`: Prueba generación CSV local y remota
-- Validación completa con proyecto CFA009238
+- `send_csv_generation.py`: Invoca generación de CSVs vía HTTP
+- Validación con proyecto de ejemplo (p. ej., CFA009238)
 
 ## Función OpenAiProcess - Lógica Detallada
 
@@ -249,16 +232,16 @@ La función OpenAiProcess recibe mensajes de Service Bus con los siguientes camp
 - Si no contiene guión: toma los primeros 3 caracteres
 - Convierte a mayúsculas
 
-#### Prefijos Permitidos por Prompt:
+#### Prefijos permitidos por prompt (según código)
 
 **Prompt 1 - Auditoría:**
-- Prefijos permitidos: `['IXP']`
+- `['IXP']`
 
 **Prompt 2 - Productos:**
-- Prefijos permitidos: `['ROP', 'INI', 'DEC', 'IFS']`
+- `['ROP', 'INI', 'DEC', 'IFS']`
 
 **Prompt 3 - Desembolsos:**
-- Prefijos permitidos: `['ROP', 'INI', 'DEC']`
+- `['ROP', 'INI', 'DEC', 'IFS']`
 
 ### Comportamiento Observado
 
@@ -318,7 +301,7 @@ graph TD
 1. Clona el repositorio:
    ```bash
    git clone <repo-url>
-   cd Agentes_jen_rebuild
+   cd CAF_cartera_agents
    ```
 2. Instala dependencias:
    ```bash
@@ -335,7 +318,7 @@ graph TD
 Árbol de directorios principal y propósito de cada elemento:
 
 ```
-Agentes_jen_rebuild/
+CAF_cartera_agents/
 ├── .env.example                 # Ejemplo de variables de entorno necesarias
 ├── .gitignore                   # Reglas para excluir archivos sensibles y temporales
 ├── README.md                    # Este documento
@@ -721,7 +704,7 @@ FUNCTIONS_EXTENSION_VERSION=~4
 ### 4. Creación de Batch en OpenAI
 - **Prompts especializados**: Auditoria, Desembolsos, Productos
 - **🆕 Soporte multiidioma**: ES/PT/EN/FR
-- **Filtros por prefijo**: IXP (auditoría), ROP/INI/DEC (desembolsos/productos)
+- **Filtros por prefijo**: IXP (auditoría), ROP/INI/DEC/IFS (desembolsos/productos)
 - **Metadata**: Información del proyecto y configuración
 
 ### 5. Polling y Resultados
@@ -777,8 +760,8 @@ az functionapp deployment source config-zip \
 cd azure_functions/tests
 python3 list_projects_with_json.py
 
-# Test de generación CSV (local y remoto)
-python3 test_csv_generation.py CFA009238
+# Invocar generación de CSVs (HTTP)
+python3 send_csv_generation.py CFA009238
 ```
 
 #### Testing de Conectividad

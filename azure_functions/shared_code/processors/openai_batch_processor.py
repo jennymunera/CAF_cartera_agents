@@ -100,6 +100,19 @@ informe_externo_entregado_norm ∈ {a tiempo, dispensado, vencido, null}
 
 concepto_*_norm ∈ {Favorable, Favorable con reservas, Desfavorable, no se menciona}
 
+Criterios de clasificación (concepto_*_norm):
+- Desfavorable: opinión negativa o con múltiples términos negativos/observaciones graves (p.ej. incumplimiento, deficiencias significativas, material weaknesses, adverse opinion).
+- Favorable: opinión positiva o sin comentarios negativos; expresiones como “sin salvedades”, “unqualified opinion”, “no reveló deficiencias significativas”.
+- Favorable con reservas: opinión mayormente positiva con alguna salvedad/limitación/“excepto por…”, “con salvedades”, “qualified opinion”.
+- No se menciona: no hay evidencia suficiente en el documento para concluir el concepto.
+
+Frases indicativas (útiles para ubicar el dictamen):
+- Marcadores de sección: “En nuestra opinión…”, “Llegamos a la conclusión…”, “Concluimos que…”, “Observamos…”.
+- Favorable (patrones): “no observamos [deficiencias/condiciones reportables]”, “no reveló deficiencias significativas”, “sin salvedades / unqualified opinion”, “presentan razonablemente…”.
+- Favorable con reservas (patrones): “excepto por…”, “con salvedades”, “observaciones que se incluyen… para fortalecer…”, “cumple en aspectos significativos, excepto…”.
+- Desfavorable (patrones): “condiciones reportables…”, “inconsistencia significativa…”, “descumpriu/ incumplió…”, “retrasos significativos… que afectan…”, “se sostiene la observación formulada…”.
+
+
 Heurísticas rápidas (few-shot):
 
 “sin salvedades / no reveló deficiencias significativas” → Favorable.
@@ -158,7 +171,7 @@ nombre_archivo:
 - Ejemplo: "IXP-CFA009660-Auditoria-Externa-2024.pdf"
 
 Formato de fechas:
-- Todas las fechas en este prompt (incluyendo cualquier campo que comience por "fecha_") deben devolverse en formato fecha: "YYYY-MM-DD". Si no puedes determinar una fecha con evidencia, deja null.
+- Todas las fechas en este prompt (incluyendo cualquier campo que comience por "fecha_") deben devolverse en formato datetime: "YYYY-MM-DD HH:MM". Si no puedes determinar una fecha con evidencia, deja null.
 
 Esquema de salida JSON
 {
@@ -186,7 +199,7 @@ Esquema de salida JSON
   "fecha_vencimiento_SSC": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
   "fecha_cambio_estado_informe_SSC": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
 
-  "fecha_extraccion": "YYYY-MM-DD",
+  "fecha_extraccion": "YYYY-MM-DD HH:MM",
   "fecha_ultima_revision": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
 
   "status_auditoria_SSC": "Pendiente",
@@ -240,11 +253,15 @@ Código de operación (CFA): portada/primeras páginas, cabecera del cronograma,
 
 Fecha de desembolso (período):
 
-“Detalle/Estado de desembolsos”, “Desembolsos efectuados/realizados”, “Pagos ejecutados”, “Transferencias realizadas”, “Cronograma/Programación/Calendario de desembolsos”, “Flujo de caja”, “Proyección financiera”.
+Busca en secciones/tablas con títulos como:
+- “Cronograma de desembolsos”, “Programación de desembolsos”, “Calendario de desembolsos”, “Plan de desembolsos”.
+- “Proyección de desembolsos”, “Cuadro de proyección de desembolsos”, “Proyección financiera”.
+- “Detalle/Estado de desembolsos”, “Desembolsos efectuados/realizados” (sólo como contexto; recuerda NO emitir realizados), “Pagos ejecutados”, “Transferencias realizadas”.
+- “Flujo de caja / Cash flow”.
 
-Formatos válidos: YYYY, YYYY-MM, YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, DD-MM-YYYY, Enero 2023, Q1 2023, Trimestre 1, Semestre 2, 2024-06.
+Formatos válidos: YYYY, YYYY-MM, YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, DD-MM-YYYY, Enero 2023, Q1 2023, Trimestre 1, Semestre 2, 2024-06. En la salida, todas las fechas deben devolverse en formato "YYYY-MM-DD". Si sólo hay periodo (mes/año o año), deja null y explica en evidence.
 
-Monto desembolsado CAF (monto_original): columna “Monto/Importe/Desembolsado/Valor/Total” (extrae número puro, sin símbolos y sin conversiones).
+Monto desembolsado CAF (monto_original): columna “Monto/Importe/Desembolsado/Valor/Total” (extrae número puro, sin símbolos y sin conversiones). Si aparecen magnitudes como “K”, “M/MM”, “B” (p. ej. “500MM USD”), no escales el número: asigna monto_original.value=500; moneda.value="USD"; y agrega monto_magnitud.value="MM".
 
 moneda: columna “Moneda” o heredar desde título/cabecera/leyenda de la tabla (p. ej. “(USD)”, “Moneda: PEN”) → entonces confidence="EXTRAIDO_INFERIDO" con evidencia de la leyenda.
 
@@ -304,8 +321,7 @@ Reglas de salida (cardinalidad y formato)
 
 Cardinalidad
 
-Detecta todos los registros de desembolso en el/los documento(s).
-Por CADA registro identificado (unidad mínima = período/fecha × moneda × tipo_registro):
+Detecta todos los registros de desembolso PROYECTADOS/PROGRAMADOS en el/los documento(s). NO emitas registros realizados. Por CADA registro proyectado identificado (unidad mínima = período/fecha × moneda):
 EMITE UNA (1) instancia del esquema completo “Esquema de salida JSON (por registro)”.
 No agregues ni elimines claves.
 Si falta evidencia en una clave: value=null, confidence="NO_EXTRAIDO", evidence=null.
@@ -340,6 +356,9 @@ Salida esperada (una sola fila JSON):
 Formato de fechas:
 - Todas las fechas (incluyendo cualquier clave que comience por "fecha_") deben devolverse en formato fecha: "YYYY-MM-DD". Si no puedes determinar una fecha con evidencia, deja null.
 
+Formato de fechas:
+- Todas las fechas deben devolverse como fecha "YYYY-MM-DD". Si no hay día disponible (sólo mes/año o año), deja null y documenta en evidence.
+
 Esquema de salida JSON (por registro)
 {
   "codigo_CFA": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
@@ -350,6 +369,8 @@ Esquema de salida JSON (por registro)
   "fecha_desembolso": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
 
   "monto_original": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
+
+  "monto_magnitud": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},  // K | M | MM | B | null
 
   "moneda": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
 
@@ -391,9 +412,9 @@ Uso del nombre del archivo fuente (consistencia): si está presente, úsalo para
 
 Checklist anti–“NO_EXTRAIDO”:
 
-Tablas/Matrices → “Matriz de Indicadores”, “Marco Lógico”, “Metas físicas”.
+Tablas/Matrices → “Matriz de Indicadores y Metas”, “Matriz de Indicadores”, “Marco Lógico”, “Metas físicas”.
 
-Narrativo → “Resultados esperados”, “Componentes”, “Seguimiento de indicadores” (IFS).
+Narrativo → “Resultados esperados”, “Componentes”, “Indicadores de seguimiento del programa/proyecto”, “Seguimiento de indicadores”.
 
 Anexos/Excel → cuando estén citados en índice.
 
@@ -405,17 +426,30 @@ Código CFA / CFX: portada, primeras páginas, marcos lógicos, carátulas.
 
 Descripción de producto: títulos/filas en matrices, POA, componentes, IFS.
 
-Meta del producto / Meta unidad: columnas de metas → separa número/unidad (230 km → meta_num=230, meta_unidad=km).
+Meta del producto / Meta unidad:
+- Columnas de metas → separa número/unidad (230 km → meta_num=230, meta_unidad=km).
+- Distingue SIEMPRE:
+  - meta_num: la meta total (objetivo comprometido para el producto) en la misma unidad que meta_unidad/meta_unidad_norm.
+  - meta_avance: el avance actual reportado a la fecha (en la misma unidad). Si no hay avance explícito, deja meta_avance.value=null.
+- Unidad: normaliza en meta_unidad_norm y úsala tanto para meta_num como para meta_avance.
 
 Fuente del indicador: columna/nota “Fuente” (ROP, INI, DEC, IFS, SSC).
 
-Fecha cumplimiento de meta: “Fecha meta”, “Fecha de cumplimiento”, “Plazo”.
+Fecha de cumplimiento/avance de meta (fecha_cumplimiento_meta):
+- Si existe “avance a la fecha” o “corte” del indicador, usa la fecha de ese avance (fecha del reporte de meta_avance).
+- Si no hay fecha de avance, usa la fecha meta (planeada/objetivo) si existe, con confidence acorde.
+- Formato “YYYY-MM-DD”; si no puedes determinarla, deja null.
 
 Tipo de dato: pendiente/proyectado/realizado (claves: programado, estimado, alcanzado).
 
 Característica: {administración, capacitación, fortalecimiento institucional, infraestructura}.
 
 Check_producto: “Sí” si corresponde inequívocamente a producto (no resultado).
+
+Detección y clasificación de indicadores (producto vs resultado):
+- Indicadores de producto: miden entregables/outputs del proyecto y pueden medirse durante la ejecución (avance intermedio o acumulado). Son los únicos que debes reportar en la salida. check_producto="Sí" en todas las filas emitidas.
+- Indicadores de resultado: miden efectos/logros posteriores a la culminación u obtenidos de la ejecución (outcomes). NO emitas filas para indicadores de resultado; si los detectas, ignóralos (puedes considerarlos contexto, pero no generar instancia en la salida).
+- No mezclar producto y resultado: la salida debe contener exclusivamente indicadores de producto.
 
 Fecha última revisión:
 - Definición: fecha del documento revisado (fecha de última revisión/actualización/emisión/aprobación del propio documento).
@@ -456,6 +490,9 @@ meta_num: número puro (ej. 230 de “230 km”).
 
 meta_unidad_norm: catálogo controlado (%, km, personas, m², m³, horas, hectáreas, kVA, MVA, l/s, galones, miles gal/día, toneladas, cantidad/año, miles m², etc.).
 
+Vocabulos útiles para detectar avances (ES/EN/PT):
+- “avance”, “al corte”, “a la fecha”, “acumulado”, “logrado”, “alcanzado”, “cumplido”, “executado/executado”, “atingido”, “achieved”, “as of”, “to date”, “cumulative”.
+
 Few-shot (patrones típicos):
 
 “230 km de carretera” → meta_num=230, meta_unidad_norm=km.
@@ -469,7 +506,7 @@ Few-shot (patrones típicos):
 “Talleres de capacitación” → caracteristica_norm=capacitacion.
 
 Reglas de salida:
-Detecta todos los productos en el/los documento(s).
+Detecta todos los productos en el/los documento(s) y devuelve solamente indicadores de producto (outputs). No generes filas para indicadores de resultado.
 Por CADA producto identificado:
 EMITE UNA (1) instancia del esquema completo “Esquema de salida JSON (por producto)”.
 No agregues ni elimines claves del esquema.
@@ -478,7 +515,7 @@ No incluyas texto adicional fuera de las líneas JSON.
 Mantén el orden de las claves tal como está definido en “Esquema de salida JSON (por producto)”.
 Si no hay evidencia → value=null, confidence="NO_EXTRAIDO".
 
-fecha_extraccion: fecha-hora actual del sistema.
+fecha_extraccion: fecha actual del procesamiento, formato "YYYY-MM-DD".
 
 nombre_archivo:
 - Si el contexto incluye "Datos del documento" → "Nombre de archivo fuente", usa ese valor exactamente (incluida la extensión).
@@ -500,6 +537,7 @@ Esquema de salida JSON (por producto)
   "meta_unidad": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null },
   "meta_num": null,
   "meta_unidad_norm": null,
+  "meta_avance": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null },
 
   "fuente_indicador": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
   "fecha_cumplimiento_meta": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
@@ -512,7 +550,7 @@ Esquema de salida JSON (por producto)
 
   "check_producto": "No",
 
-  "fecha_extraccion": "YYYY-MM-DD HH:MM",
+  "fecha_extraccion": "YYYY-MM-DD",
   "fecha_ultima_revision": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null },
 
   "nombre_archivo": "ROP_....pdf",

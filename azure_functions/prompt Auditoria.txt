@@ -19,6 +19,9 @@ Si hay múltiples versiones, usa la más reciente y registra cambios en observac
 
 CFA y CFX son códigos distintos, deben extraerse por separado.
 
+Uso del nombre del archivo fuente (consistencia):
+Si el contexto incluye "Datos del documento" → "Nombre de archivo fuente", úsalo para confirmar que el tipo de documento es IXP y, si el nombre contiene pistas de versión/fecha/año, prefiere la versión más reciente cuando corresponda. Si hay ambigüedad, justifica en observacion.
+
 Checklist anti–“NO EXTRAIDO”:
 
 Agota en este orden antes de marcar un campo como NO_EXTRAIDO:
@@ -43,7 +46,17 @@ codigo_CFX: cabeceras o secciones administrativas/financieras. Variantes: “Có
 
 opiniones (control interno / licitación / uso de recursos / unidad ejecutora): solo en Opinión/Dictamen/Conclusión → lenguaje sobre suficiencia/deficiencias, adquisiciones/procurement, conformidad vs plan, desempeño UGP.
 
-fecha_ultima_revision: encabezados/pies (“Última revisión/Actualización”).
+fecha_ultima_revision:
+- Definición: fecha del documento revisado (fecha de última revisión/actualización/emisión/aprobación del propio documento).
+- Dónde buscar (orden de preferencia):
+  1) Portada/primeras páginas (p. ej., “Fecha del documento”, “Fecha de emisión”, “Última revisión”, “Actualización”).
+  2) Encabezados y pies de página (marcas de versión/actualización).
+  3) Bloques de firmas/visas/actas (“Revisado por”, “Aprobado el”, “Visto bueno”) con fecha explícita del documento.
+  4) Notas internas de versión o leyendas (“Versión vX.Y – Actualizada el …”).
+  5) Metadatos visibles en el contenido (p. ej., “Documento creado el/Actualizado el”); no inventes.
+- Variantes multiidioma (ejemplos): “Última revisión”, “Actualización”, “Fecha del documento”, “Versión”, “Modificado”, “Revisado el”, “Aprobado el”, “Updated”, “Last revised”, “Reviewed on”, “Approved on”, “Atualizado”, “Revisto”.
+- Qué NO usar: fechas de tablas/cronogramas/eventos históricos externos; fechas de anexos salvo que indiquen explícitamente la revisión del documento principal; nunca usar fecha_extraccion o la fecha actual como sustituto.
+- Normalización: devuelve “YYYY-MM-DD”; si no puedes determinarla con evidencia suficiente, deja value=null; incluye evidence con la cita breve.
 
 Campos SSC (ver lista abajo): su evidencia se acepta desde SSC o tablas administrativas solo si el campo está marcado como SSC y la fuente está habilitada (ver Gating).
 
@@ -69,6 +82,18 @@ estado_informe_norm ∈ {dispensado, normal, satisfecho, vencido, null}
 informe_externo_entregado_norm ∈ {a tiempo, dispensado, vencido, null}
 
 concepto_*_norm ∈ {Favorable, Favorable con reservas, Desfavorable, no se menciona}
+
+Criterios de clasificación (concepto_*_norm):
+- Desfavorable: opinión negativa o con múltiples términos negativos/observaciones graves (incumplimiento, deficiencias significativas, adverse opinion).
+- Favorable: opinión positiva o sin comentarios negativos; “sin salvedades”, “unqualified opinion”, “no reveló deficiencias significativas”.
+- Favorable con reservas: opinión positiva con alguna salvedad/limitación/“excepto por…”, “con salvedades”, “qualified opinion”.
+- No se menciona: no hay evidencia suficiente en el documento.
+
+Frases indicativas (para ubicar el dictamen):
+- Marcadores de sección: “En nuestra opinión…”, “Llegamos a la conclusión…”, “Concluimos que…”, “Observamos…”.
+- Favorable (ejemplos): “No observamos ningún asunto… que consideremos deficiencia significativa”, “No observamos situaciones que reportar”, “presentan razonablemente en todos sus aspectos importantes…”.
+- Favorable con reservas (ejemplos): “excepto por…”, “con salvedades…”, “se incluyen observaciones que, si bien no son condiciones reportables, se recomiendan para fortalecer…”.
+- Desfavorable (ejemplos): “condiciones reportables…”, “inconsistencia significativa…”, “descumpriu/incumplió…”, “retrasos significativos… que afectan…”, “se sostiene la observación formulada…”.
 
 Heurísticas rápidas (few-shot):
 
@@ -121,15 +146,11 @@ Si no hay evidencia → value=null, confidence="NO_EXTRAIDO", evidence=null.
 
 concepto_rationale y texto_justificacion: siempre una cita corta (1–2 frases) de Opinión/Dictamen.
 
-fecha_extraccion: fecha-hora actual del sistema.
+fecha_extraccion: fecha y hora actuales del procesamiento (momento en que OpenAI procesa este prompt). Devuélvela en formato datetime: "YYYY-MM-DD HH:MM". Si no puedes determinarla de forma fiable, deja null.
 
-nombre_archivo: Buscar el nombre completo del archivo fuente en:
-- Encabezados y pies de página del documento
-- Metadatos y propiedades del documento
-- Referencias al archivo en el contenido
-- Nombres de archivo mencionados en el texto
-- Si no se encuentra explícitamente, usar el nombre del documento procesado
-- Incluir la extensión del archivo (.pdf, .docx, etc.) si está disponible
+nombre_archivo:
+- Si el contexto incluye "Datos del documento" → "Nombre de archivo fuente", usa ese valor exactamente (incluida la extensión).
+- Si no está presente, búscalo en encabezados/pies, metadatos, referencias o texto; si no aparece, infiérelo con la mejor evidencia disponible.
 - Ejemplo: "IXP-CFA009660-Auditoria-Externa-2024.pdf"
 
 Esquema de salida JSON

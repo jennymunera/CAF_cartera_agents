@@ -17,11 +17,13 @@ Jerarquía: ROP > INI > DEC > IFS > Anexo Excel (si lo cita el índice).
 
 En duplicados: usar la versión más reciente; si cambian valores, registrar en observacion.
 
+Uso del nombre del archivo fuente (consistencia): si está presente, úsalo para confirmar el tipo del documento (ROP/INI/DEC/IFS) y, cuando el nombre indique versión/año, prefiere la versión más reciente. Si hay ambigüedad, no inventes: deja evidencia y observacion.
+
 Checklist anti–“NO_EXTRAIDO”:
 
-Tablas/Matrices → “Matriz de Indicadores”, “Marco Lógico”, “Metas físicas”.
+Tablas/Matrices → “Matriz de Indicadores y Metas”, “Matriz de Indicadores”, “Marco Lógico”, “Metas físicas”,"indicadores de seguimiento del programa".
 
-Narrativo → “Resultados esperados”, “Componentes”, “Seguimiento de indicadores” (IFS).
+Narrativo → “Resultados esperados”, “Componentes”, “Indicadores de seguimiento del programa/proyecto”, “Seguimiento de indicadores”.
 
 Anexos/Excel → cuando estén citados en índice.
 
@@ -33,11 +35,19 @@ Código CFA / CFX: portada, primeras páginas, marcos lógicos, carátulas.
 
 Descripción de producto: títulos/filas en matrices, POA, componentes, IFS.
 
-Meta del producto / Meta unidad: columnas de metas → separa número/unidad (230 km → meta_num=230, meta_unidad=km).
+Meta del producto / Meta unidad:
+- Columnas de metas → separa número/unidad (230 km → meta_num=230, meta_unidad=km).
+- Distingue SIEMPRE:
+  - meta_num: meta total (objetivo comprometido) en la misma unidad que meta_unidad/meta_unidad_norm.
+  - meta_avance: avance actual reportado a la fecha (misma unidad). Si no hay avance explícito, deja meta_avance.value=null.
+- La unidad (meta_unidad_norm) debe servir tanto para meta_num como para meta_avance.
 
-Fuente del indicador: columna/nota “Fuente” (ROP, INI, DEC, IFS, SSC).
+Fuente del indicador: columna/nota “Fuente” (ROP, INI, DEC, IFS, SSC). Si `nombre_archivo` está disponible, añádelo entre paréntesis al final para referencia del documento.
 
-Fecha cumplimiento de meta: “Fecha meta”, “Fecha de cumplimiento”, “Plazo”.
+Fecha de cumplimiento/avance de meta (fecha_cumplimiento_meta):
+- Si existe “avance a la fecha” o “corte” del indicador, usa la fecha de ese avance (fecha del reporte de meta_avance).
+- Si no hay fecha de avance, usa la fecha meta (planeada/objetivo) si existe, con confidence acorde.
+- Formato “YYYY-MM-DD”; si no puedes determinarla, deja null.
 
 Tipo de dato: pendiente/proyectado/realizado (claves: programado, estimado, alcanzado).
 
@@ -45,7 +55,17 @@ Característica: {administración, capacitación, fortalecimiento institucional,
 
 Check_producto: “Sí” si corresponde inequívocamente a producto (no resultado).
 
-Fecha última revisión: encabezados/pies.
+Detección y clasificación de indicadores (producto vs resultado):
+- Indicadores de producto: miden entregables/outputs del proyecto y pueden medirse durante la ejecución (avance intermedio o acumulado). Son los únicos que debes reportar en la salida. check_producto="Sí" en todas las filas emitidas.
+- Indicadores de resultado: miden efectos/logros posteriores a la culminación u obtenidos de la ejecución (outcomes). NO emitas filas para indicadores de resultado; si los detectas, ignóralos (pueden servir de contexto, pero no generar instancia en la salida).
+- No mezclar producto y resultado: la salida debe contener exclusivamente indicadores de producto.
+
+Fecha última revisión:
+- Definición: fecha del documento revisado (fecha de última revisión/actualización/emisión/aprobación del propio documento).
+- Dónde buscar (orden de preferencia): portada/primeras páginas; encabezados y pies; bloques de firmas/visas (“Revisado/Aprobado el …”); notas de versión; metadatos visibles en el contenido.
+- Variantes multiidioma (ejemplos): “Última revisión”, “Actualización”, “Fecha del documento”, “Versión”, “Modificado”, “Revisado el”, “Aprobado el”, “Updated”, “Last revised”, “Reviewed on”, “Approved on”, “Atualizado”, “Revisto”.
+- No usar: fechas de tablas/cronogramas/eventos históricos ni de anexos salvo que indiquen explícitamente la revisión del documento principal.
+- Normalización: “YYYY-MM-DD”; si no puedes determinarla con evidencia, deja null y cita la evidencia revisada.
 
 Reglas especiales:
 
@@ -92,8 +112,11 @@ Few-shot (patrones típicos):
 
 “Talleres de capacitación” → caracteristica_norm=capacitacion.
 
+Formato de fechas:
+- Todas las fechas (incluyendo cualquier clave que comience por "fecha_") deben devolverse en formato fecha: "YYYY-MM-DD". Si no puedes determinar una fecha con evidencia, deja null.
+
 Reglas de salida:
-Detecta todos los productos en el/los documento(s).
+Detecta todos los productos en el/los documento(s) y devuelve solamente indicadores de producto (outputs). No generes filas para indicadores de resultado.
 Por CADA producto identificado:
 EMITE UNA (1) instancia del esquema completo “Esquema de salida JSON (por producto)”.
 No agregues ni elimines claves del esquema.
@@ -102,16 +125,15 @@ No incluyas texto adicional fuera de las líneas JSON.
 Mantén el orden de las claves tal como está definido en “Esquema de salida JSON (por producto)”.
 Si no hay evidencia → value=null, confidence="NO_EXTRAIDO".
 
-fecha_extraccion: fecha-hora actual del sistema.
+fecha_extraccion: fecha actual del procesamiento (YYYY-MM-DD).
 
-nombre_archivo: Buscar el nombre completo del archivo fuente en:
-- Encabezados y pies de página del documento
-- Metadatos y propiedades del documento
-- Referencias al archivo en el contenido
-- Nombres de archivo mencionados en el texto
-- Si no se encuentra explícitamente, usar el nombre del documento procesado
-- Incluir la extensión del archivo (.pdf, .docx, etc.) si está disponible
+nombre_archivo:
+- Si el contexto incluye "Datos del documento" → "Nombre de archivo fuente", usa ese valor exactamente (incluida la extensión).
+- Si no está presente, búscalo en encabezados/pies, metadatos, referencias o texto; si no aparece, infiérelo con la mejor evidencia disponible.
 - Ejemplo: "ROP-CFA009660-Marco-Logico-Productos-2024.pdf"
+
+Vocablos útiles para detectar avances (ES/EN/PT):
+- “avance”, “al corte”, “a la fecha”, “acumulado”, “logrado”, “alcanzado”, “cumplido”, “executado/executado”, “atingido”, “achieved”, “as of”, “to date”, “cumulative”.
 
 Esquema de salida JSON (por producto)
 {
@@ -124,6 +146,7 @@ Esquema de salida JSON (por producto)
   "meta_unidad": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null },
   "meta_num": null,
   "meta_unidad_norm": null,
+  "meta_avance": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null },
 
   "fuente_indicador": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
   "fecha_cumplimiento_meta": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
@@ -136,7 +159,7 @@ Esquema de salida JSON (por producto)
 
   "check_producto": "No",
 
-  "fecha_extraccion": "YYYY-MM-DD HH:MM",
+  "fecha_extraccion": "YYYY-MM-DD",
   "fecha_ultima_revision": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null },
 
   "nombre_archivo": "ROP_....pdf",
