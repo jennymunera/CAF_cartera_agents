@@ -13,17 +13,21 @@ Ejemplos de variantes: "Producto/Product/Produto", "Meta/Target/Meta", "Indicado
 
 Prioridad documental:
 
-Jerarquía: ROP > INI > DEC > IFS > Anexo Excel (si lo cita el índice).
+Jerarquía: IFS > ROP > INI > DEC > Anexo Excel (si lo cita el índice).
+
+Reglas de extracción por fuente:
+- Proyectado/Programado: puede extraerse desde IFS, ROP, INI, DEC (priorizar IFS cuando exista).
+- Realizado/Avance: extraer solo desde IFS. No buscar “realizado/avance” en ROP, INI, DEC.
 
 En duplicados: usar la versión más reciente; si cambian valores, registrar en observacion.
 
-Uso del nombre del archivo fuente (consistencia): si está presente, úsalo para confirmar el tipo del documento (ROP/INI/DEC/IFS) y, cuando el nombre indique versión/año, prefiere la versión más reciente. Si hay ambigüedad, no inventes: deja evidencia y observacion.
+Uso del nombre del archivo fuente (consistencia): si está presente, úsalo para confirmar el tipo del documento (IFS/ROP/INI/DEC) y, cuando el nombre indique versión/año, prefiere la versión más reciente. Si hay ambigüedad, no inventes: deja evidencia y observacion.
 
 Checklist anti–“NO_EXTRAIDO”:
 
-Tablas/Matrices → “Matriz de Indicadores y Metas”, “Matriz de Indicadores”, “Marco Lógico”, “Metas físicas”,"indicadores de seguimiento del programa".
+Tablas/Matrices → “Matriz de Indicadores y Metas”, “Matriz de Indicadores”, “Indicadores de seguimiento del Programa/Proyecto”, “Indicadores de Producto”.
 
-Narrativo → “Resultados esperados”, “Componentes”, “Indicadores de seguimiento del programa/proyecto”, “Seguimiento de indicadores”.
+Narrativo → “Resultados esperados”, “Componentes”, “Indicadores de seguimiento del programa/proyecto”, “Seguimiento de indicadores” (IFS).
 
 Anexos/Excel → cuando estén citados en índice.
 
@@ -31,7 +35,7 @@ Encabezados/pies → “Última revisión/Actualización”.
 
 Dónde buscar (por campo):
 
-Código CFA / CFX: portada, primeras páginas, marcos lógicos, carátulas.
+Código CFA / CFX: portada, primeras páginas, carátulas.
 
 Descripción de producto: títulos/filas en matrices, POA, componentes, IFS.
 
@@ -42,12 +46,14 @@ Meta del producto / Meta unidad:
   - meta_avance: avance actual reportado a la fecha (misma unidad). Si no hay avance explícito, deja meta_avance.value=null.
 - La unidad (meta_unidad_norm) debe servir tanto para meta_num como para meta_avance.
 
-Fuente del indicador: columna/nota “Fuente” (ROP, INI, DEC, IFS, SSC). Si `nombre_archivo` está disponible, añádelo entre paréntesis al final para referencia del documento.
+Fuente del indicador: columna/nota “Fuente” (ROP, INI, DEC, IFS, SSC).
+- Si el contexto incluye "Nombre de archivo fuente", establece fuente_indicador.value EXACTAMENTE igual a ese nombre (mismo literal que en nombre_archivo).
+- Si no está disponible el nombre del archivo, usa la referencia/etiqueta de la fuente (IFS/ROP/INI/DEC) y cita evidencia.
 
 Fecha de cumplimiento/avance de meta (fecha_cumplimiento_meta):
-- Si existe “avance a la fecha” o “corte” del indicador, usa la fecha de ese avance (fecha del reporte de meta_avance).
-- Si no hay fecha de avance, usa la fecha meta (planeada/objetivo) si existe, con confidence acorde.
-- Formato “YYYY-MM-DD”; si no puedes determinarla, deja null.
+- Los indicadores se reportan por año o semestre del año, no por fecha exacta de día.
+- Devuelve solo “YYYY” (año) o “YYYY-S1” / “YYYY-S2” (semestre asociado al año) según corresponda.
+- Si no puedes determinar año/semestre con evidencia, deja null.
 
 Tipo de dato: pendiente/proyectado/realizado (claves: programado, estimado, alcanzado).
 
@@ -60,12 +66,7 @@ Detección y clasificación de indicadores (producto vs resultado):
 - Indicadores de resultado: miden efectos/logros posteriores a la culminación u obtenidos de la ejecución (outcomes). NO emitas filas para indicadores de resultado; si los detectas, ignóralos (pueden servir de contexto, pero no generar instancia en la salida).
 - No mezclar producto y resultado: la salida debe contener exclusivamente indicadores de producto.
 
-Fecha última revisión:
-- Definición: fecha del documento revisado (fecha de última revisión/actualización/emisión/aprobación del propio documento).
-- Dónde buscar (orden de preferencia): portada/primeras páginas; encabezados y pies; bloques de firmas/visas (“Revisado/Aprobado el …”); notas de versión; metadatos visibles en el contenido.
-- Variantes multiidioma (ejemplos): “Última revisión”, “Actualización”, “Fecha del documento”, “Versión”, “Modificado”, “Revisado el”, “Aprobado el”, “Updated”, “Last revised”, “Reviewed on”, “Approved on”, “Atualizado”, “Revisto”.
-- No usar: fechas de tablas/cronogramas/eventos históricos ni de anexos salvo que indiquen explícitamente la revisión del documento principal.
-- Normalización: “YYYY-MM-DD”; si no puedes determinarla con evidencia, deja null y cita la evidencia revisada.
+Fecha última revisión: (no requerida devuelve null siempre)
 
 Reglas especiales:
 
@@ -92,7 +93,8 @@ evidence: cita breve literal o cercana.
 
 Normalización:
 
-tipo_dato_norm ∈ {pendiente, proyectado, realizado, null}.
+tipo_dato_norm ∈ {proyectado, realizado, pendiente}.
+- pendiente: usar exclusivamente cuando la información no esté disponible por ausencia de IFS; en presencia de IFS, intenta clasificar como proyectado/realizado según corresponda.
 
 caracteristica_norm ∈ {administracion, capacitacion, fortalecimiento institucional, infraestructura, null}.
 
@@ -117,13 +119,17 @@ Formato de fechas:
 
 Reglas de salida:
 Detecta todos los productos en el/los documento(s) y devuelve solamente indicadores de producto (outputs). No generes filas para indicadores de resultado.
-Por CADA producto identificado:
-EMITE UNA (1) instancia del esquema completo “Esquema de salida JSON (por producto)”.
-No agregues ni elimines claves del esquema.
-No mezcles datos de productos distintos en la misma instancia.
-No incluyas texto adicional fuera de las líneas JSON.
-Mantén el orden de las claves tal como está definido en “Esquema de salida JSON (por producto)”.
-Si no hay evidencia → value=null, confidence="NO_EXTRAIDO".
+
+Exhaustividad y formato de salida:
+- Recorre COMPLETAMENTE las tablas/matrices de indicadores y metas; no te detengas en el primer ítem.
+- Salida NDJSON (multi‑línea): por CADA producto identificado, emite EXACTAMENTE UNA línea JSON (una instancia del esquema completo). Si hay 4 productos (p. ej. Lote 1, 2, 3, 4), emite 4 líneas.
+- No agrupar productos distintos en una misma instancia. No resumir varios productos en una sola línea.
+
+Esquema y consistencia:
+- No agregues ni elimines claves del esquema.
+- No incluyas texto adicional fuera de las líneas JSON.
+- Mantén el orden de las claves tal como está definido en “Esquema de salida JSON (por producto)”.
+- Si no hay evidencia → value=null, confidence="NO_EXTRAIDO".
 
 fecha_extraccion: fecha actual del procesamiento (YYYY-MM-DD).
 
@@ -149,7 +155,7 @@ Esquema de salida JSON (por producto)
   "meta_avance": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null },
 
   "fuente_indicador": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
-  "fecha_cumplimiento_meta": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},
+  "fecha_cumplimiento_meta": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null},  // Formato: YYYY o YYYY-S1/ YYYY-S2
 
   "tipo_dato": { "value": null, "confidence": "NO_EXTRAIDO", "evidence": null },
   "tipo_dato_norm": null,

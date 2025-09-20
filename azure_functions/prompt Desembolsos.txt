@@ -43,9 +43,12 @@ Fecha de desembolso (período):
 
 Busca en secciones/tablas con títulos como:
 - “Cronograma de desembolsos”, “Programación de desembolsos”, “Calendario de desembolsos”, “Plan de desembolsos”.
+- “Cronograma Estimado de Desembolsos CAF”, “Cronograma tentativo de Desembolsos CAF”.
 - “Proyección de desembolsos”, “Cuadro de proyección de desembolsos”, “Proyección financiera”.
-- “Detalle/Estado de desembolsos”, “Desembolsos efectuados/realizados” (sólo como contexto; NO emitas realizados), “Pagos ejecutados”, “Transferencias realizadas”.
 - “Flujo de caja / Cash flow”.
+
+Distinción por fuente (CAF vs contrapartida local):
+- Si el cronograma presenta columnas/rubros de “Préstamo CAF” y “Contrapartida Local” (u otros cofinanciamientos), devuelve EXCLUSIVAMENTE los registros correspondientes al préstamo CAF. Ignora o excluye la contrapartida local y otros cofinanciamientos.
 
 Formatos válidos: YYYY, YYYY-MM, YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, DD-MM-YYYY, Enero 2023, Q1 2023, Trimestre 1, Semestre 2, 2024-06. En la salida, todas las fechas deben devolverse en formato "YYYY-MM-DD". Si sólo hay periodo (mes/año o año), deja null y explica en evidence.
 
@@ -149,6 +152,11 @@ Formato de fechas:
 
 Formato de fechas:
 - Todas las fechas deben devolverse como fecha "YYYY-MM-DD". Si no hay día disponible (sólo mes/año o año), deja null y documenta en evidence.
+
+Exhaustividad y formato de salida:
+- Recorre COMPLETAMENTE todas las filas de las tablas/cronogramas/proyecciones; no te detengas en el primer registro encontrado.
+- Salida NDJSON (multi‑línea): por CADA registro proyectado identificado, emite EXACTAMENTE UNA línea JSON (una instancia del esquema). Si hay 10 períodos distintos para la misma moneda, emite 10 líneas.
+- No agrupar varios períodos/monedas en una misma instancia. No resumir varios registros en una sola línea.
 
 Esquema de salida JSON (por registro)
 {

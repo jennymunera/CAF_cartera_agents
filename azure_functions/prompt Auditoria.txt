@@ -46,7 +46,7 @@ codigo_CFX: cabeceras o secciones administrativas/financieras. Variantes: “Có
 
 opiniones (control interno / licitación / uso de recursos / unidad ejecutora): solo en Opinión/Dictamen/Conclusión → lenguaje sobre suficiencia/deficiencias, adquisiciones/procurement, conformidad vs plan, desempeño UGP.
 
-fecha_ultima_revision:
+Fecha última revisión: (no requerida devuelve null siempre)
 - Definición: fecha del documento revisado (fecha de última revisión/actualización/emisión/aprobación del propio documento).
 - Dónde buscar (orden de preferencia):
   1) Portada/primeras páginas (p. ej., “Fecha del documento”, “Fecha de emisión”, “Última revisión”, “Actualización”).
